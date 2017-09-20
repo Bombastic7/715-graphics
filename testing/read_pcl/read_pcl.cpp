@@ -1,7 +1,6 @@
 #include <iostream>
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
-#include "RegionGrowing.h"
 #include <pcl/search/search.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/features/normal_3d.h>
@@ -9,8 +8,6 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/segmentation/region_growing.h>
 #include <vector>
-#include <pcl/point_types.h>
-#include <pcl/io/pcd_io.h>
 
 int
 main (int argc, char** argv)
