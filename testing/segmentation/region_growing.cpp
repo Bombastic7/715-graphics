@@ -98,6 +98,11 @@ main (int argc, char** argv)
   std::cout << "\n\nDone.\n";
   std::cout << "Clusters: " << clusters.size() << "\n";
 
+  if (clusters.size() == 0) {
+	  std::cout << "Exiting as no clusters found.\n";
+	  return (0);
+  }
+
   pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
   pcl::visualization::CloudViewer viewer(std::string("Cluster Viewer: ") + argv[filenames[0]]);
   viewer.showCloud(colored_cloud);
