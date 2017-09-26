@@ -113,22 +113,27 @@ main (int argc, char** argv)
 
   int i = 0;
   for (i = 0; i < clusters.size(); i++) {
-	  std::cout << "Displaying cloud: " << i + 1 << "\n";
+	  std::cout << "\nDisplaying cloud: " << i + 1 << "\n";
 
 	  // Extract point cloud from the indices
 	  pcl::PointCloud<pcl::PointXYZ>::Ptr newCloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-	  std::vector <pcl::PointIndices> currCluster;
-	  currCluster.push_back(clusters[i]);
 	  pcl::ExtractIndices<pcl::PointXYZ> eifilter(true);
 	  eifilter.setInputCloud(cloud);
-
 	  pcl::PointIndices::Ptr pi_ptr(new pcl::PointIndices());
 	  pi_ptr->indices = clusters[i].indices;
-	  eifilter.setIndices(pi_ptr); //BUG: the method aguments are of the incorrect type
+	  eifilter.setIndices(pi_ptr); 
 	  eifilter.filter(*newCloud);
 	  std::cout << "New Cloud size: " << newCloud->width * newCloud->height << std::endl;
 
+	  //Extract normals using indices
+	  pcl::PointCloud <pcl::Normal>::Ptr newNormals(new pcl::PointCloud <pcl::Normal>);
+	  pcl::ExtractIndices<pcl::Normal> nFilter(true);
+	  nFilter.setInputCloud(normals);
+	  nFilter.setIndices(pi_ptr);
+	  nFilter.filter(*newNormals);
+	  std::cout << "New Normal Cloud size: " << newNormals->width * newNormals->height << std::endl;
+		
+	  /*
 	  // compute normals 
 	  std::cout << "Computing Normals for cluster " <<  i+1 << std::flush;
 	  // TODO: use the normals computed before
@@ -139,7 +144,9 @@ main (int argc, char** argv)
 	  normal_estimator.setInputCloud(cloud);
 	  normal_estimator.setKSearch(50);
 	  normal_estimator.compute(*newNormals);
-	  std::cout << tictoc.toc() / 1000 << "s\n";
+	  std::cout << tictoc.toc() / 1000 << "s\n";	  
+	  */
+
 
 	  /*
 	  // Concatenate the XYZ and normal fields*
