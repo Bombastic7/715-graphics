@@ -14,6 +14,7 @@
 #include <pcl/console/time.h>
 #include <pcl/surface/gp3.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/PointIndices.h>
 
 
 int
@@ -102,8 +103,18 @@ main (int argc, char** argv)
   std::cout << "\n\nDone.\n";
   std::cout << "Clusters: " << clusters.size() << "\n";
 
+  if (clusters.size() == 0) {
+	  std::cout << "Exiting as no clusters found.\n";
+	  return (0);
+	}
+
+  pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
+  pcl::visualization::CloudViewer viewer(std::string("Cluster Viewer: ") + argv[filenames[0]]);
+
   int i = 0;
   for (i = 0; i < clusters.size(); i++) {
+	  std::cout << "Displaying cloud: " << i + 1 << "\n";
+
 	  // Extract point cloud from the indices
 	  pcl::PointCloud<pcl::PointXYZ>::Ptr newCloud(new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -112,15 +123,14 @@ main (int argc, char** argv)
 	  pcl::ExtractIndices<pcl::PointXYZ> eifilter(true);
 	  eifilter.setInputCloud(cloud);
 
-	  eifilter.setIndices(clusters[i].indices); //BUG: the method aguments are of the incorrect type
+	  pcl::PointIndices::Ptr pi_ptr(new pcl::PointIndices());
+	  pi_ptr->indices = clusters[i].indices;
+	  eifilter.setIndices(pi_ptr); //BUG: the method aguments are of the incorrect type
 	  eifilter.filter(*newCloud);
-	  /*
-	  int j = 0;
-	  for (j = 0; j < clusters[i].indices.size(); j++) {
-		  //newCloud[j] =
-	  }
+	  std::cout << "New Cloud size: " << newCloud->width * newCloud->height << std::endl;
 
 	  // compute normals 
+	  std::cout << "Computing Normals for cluster " <<  i+1 << std::flush;
 	  // TODO: use the normals computed before
 	  pcl::search::Search<pcl::PointXYZ>::Ptr tree = boost::shared_ptr<pcl::search::Search<pcl::PointXYZ> >(new pcl::search::KdTree<pcl::PointXYZ>);
 	  pcl::PointCloud <pcl::Normal>::Ptr newNormals(new pcl::PointCloud <pcl::Normal>);
@@ -129,23 +139,26 @@ main (int argc, char** argv)
 	  normal_estimator.setInputCloud(cloud);
 	  normal_estimator.setKSearch(50);
 	  normal_estimator.compute(*newNormals);
+	  std::cout << tictoc.toc() / 1000 << "s\n";
 
+	  /*
 	  // Concatenate the XYZ and normal fields*
 	  pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointNormal>);
 	  pcl::concatenateFields(*cloud, *newNormals, *cloud_with_normals);
 	  //* cloud_with_normals = cloud + normals
 	  */
+	  
+	  
+	  // TEST: Add each cloud to the visualizer
+	  viewer.showCloud(newCloud);
+
   }
 
 
-  if (clusters.size() == 0) {
-	  std::cout << "Exiting as no clusters found.\n";
-	  return (0);
-  }
+  //viewer.showCloud(colored_cloud);
+  
 
-  pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
-  pcl::visualization::CloudViewer viewer(std::string("Cluster Viewer: ") + argv[filenames[0]]);
-  viewer.showCloud(colored_cloud);
+  
   
   while (!viewer.wasStopped()) {}
 
