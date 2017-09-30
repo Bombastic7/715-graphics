@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <random>
 #include <string>
 #include <pcl/io/ply_io.h>
 #include <pcl/io/pcd_io.h>
@@ -96,4 +98,18 @@ void make_rgb_scale(std::vector<U>& vals, typename pcl::PointCloud<PointT>::Ptr 
     if(map_type == COLOR_MAP_COOLWARM)
       coolwarm_scale_value((vals[i] - val_min) / (val_max - val_min), cloud_rgb->points[i].r, cloud_rgb->points[i].g, cloud_rgb->points[i].b);
   }
+}
+
+
+template<typename U>
+void make_random_equidistant_range_assignment(int n, std::vector<U>& vals, int seed = 12345) {
+  vals.resize(n);
+  
+  double k = 1.0 / (n-1);
+  
+  for(int i=0; i<n; i++)
+    vals[i] = k * i;
+  
+  std::mt19937 g(seed);
+  std::shuffle(vals.begin(), vals.end(), g);
 }
