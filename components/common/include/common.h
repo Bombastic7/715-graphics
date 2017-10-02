@@ -48,7 +48,7 @@ void rainbow_scale_value(T val, U& r, U& g, U& b) {
     case 2: g = 255; b = x;       break;
     case 3: b = 255; g = 255 - x; break;
     case 4: b = 255; r = x;       break;
-    case 5: r = 255; b = 255 - x; break;
+    default: r = 255; b = 255 - x; break;
   }
 }
 

@@ -54,29 +54,32 @@ class PlaneSegmentation {
   }
   
   void run() {
-    while(true) {
+    while(true) {      
+      if(valid_indices_->indices.size() < 3)
+        break;
+      
       std::cout << "Valid indices: " << valid_indices_->indices.size() << "\n";
       pcl::PointIndices::Ptr plane_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
       pcl::ModelCoefficients::Ptr plane_coeffs = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients);
       seg_.segment (*plane_indices, *plane_coeffs);
       
-      cluster_indices_.push_back(plane_indices);
-      cluster_coeffs_.push_back(plane_coeffs);
+      if(plane_indices->indices.size() > 0) {
+        cluster_indices_.push_back(plane_indices);
+        cluster_coeffs_.push_back(plane_coeffs);
+        
+        pcl::PointIndices::Ptr new_valid_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
       
-      pcl::PointIndices::Ptr new_valid_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-    
-      std::sort(plane_indices->indices.begin(), plane_indices->indices.end()); //Are the returned indices sorted?
-      std::set_difference(valid_indices_->indices.begin(), valid_indices_->indices.end(), 
-                          plane_indices->indices.begin(), plane_indices->indices.end(), 
-                          std::back_inserter(new_valid_indices->indices));
+        std::sort(plane_indices->indices.begin(), plane_indices->indices.end()); //Are the returned indices sorted?
+        std::set_difference(valid_indices_->indices.begin(), valid_indices_->indices.end(), 
+                            plane_indices->indices.begin(), plane_indices->indices.end(), 
+                            std::back_inserter(new_valid_indices->indices));
       
-      if(valid_indices_->indices.size() == new_valid_indices->indices.size())
+        valid_indices_ = new_valid_indices;
+        seg_.setIndices(valid_indices_);
+      }
+      else
         break;
-      
-      valid_indices_ = new_valid_indices;
-      
-      if(valid_indices_->indices.size() < 3)
-        break;
+
     }
   }
   
@@ -91,8 +94,15 @@ class PlaneSegmentation {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_colored = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
     
     pcl::copyPointCloud(*cloud_, *cloud_colored);
-
+    
+    for(int i=0; i<cloud_->size(); i++) {
+      cloud_colored->points[i].r = 255;
+      cloud_colored->points[i].g = 255;
+      cloud_colored->points[i].b = 255;
+    }
+  
     for(int i=0; i<cluster_indices_.size(); i++) {
+      std::cout << "Cluster " << i << " color: " << (int)(cluster_rgb->points[i].r) << ", " << (int)(cluster_rgb->points[i].g) << ", " << (int)(cluster_rgb->points[i].b) << "\n";
       for(int j=0; j<cluster_indices_[i]->indices.size(); j++) {
         cloud_colored->points[cluster_indices_[i]->indices[j]].r = cluster_rgb->points[i].r;
         cloud_colored->points[cluster_indices_[i]->indices[j]].g = cluster_rgb->points[i].g;
@@ -274,11 +284,11 @@ int
 main (int argc, char** argv)
 {
   if(argc == 1) {
-    std::cout << "USAGE: \n";
+    std::cout << "USAGE: \n"
     << "-i input file\n"
     << "-d RANSAC plane model distance threshold\n"
     << "-s RANSAC samples max distance\n"
-    << "-e RANSAC Epsilon angle, max deviation in normal\n",
+    << "-e RANSAC Epsilon angle, max deviation in normal\n"
     << "-r normal estimation search radius\n";
     return 1;
   }
