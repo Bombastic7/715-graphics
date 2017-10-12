@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <cmath>
 #include <pcl/common/io.h>
 #include <pcl/console/parse.h>
 #include <pcl/features/normal_3d.h>
@@ -12,6 +13,7 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/search/search.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include "common.h"
@@ -22,7 +24,7 @@ template<typename PointT>
 class PlaneSegmentation {
   public:
   
-  PlaneSegmentation(typename pcl::PointCloud<PointT>::Ptr cloud, double dist_th, double samples_max_dist, double eps_angle, double norm_est_rad) :
+  PlaneSegmentation(typename pcl::PointCloud<PointT>::Ptr cloud, double dist_th, double samples_max_dist, double eps_angle, double norm_est_rad, double maxrad2stage) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     valid_indices_(new pcl::PointIndices),
     tree_(new typename pcl::search::KdTree<PointT>),
@@ -30,7 +32,8 @@ class PlaneSegmentation {
     dist_th_(dist_th),
     samples_max_dist_(samples_max_dist),
     eps_angle_(eps_angle),
-    norm_est_rad_(norm_est_rad)
+    norm_est_rad_(norm_est_rad),
+	maxrad2stage_(maxrad2stage)
   {
     for(int i=0; i<cloud->size(); i++) {
       valid_indices_->indices.push_back(i);
@@ -113,13 +116,13 @@ class PlaneSegmentation {
   }
   
   
-  void visualize() {
+  void visualize(int use_color_map = COLOR_MAP_RAINBOW) {
     std::vector<float> color_scale_values;
     pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
     cluster_rgb->points.resize(cluster_indices_.size());
     
     make_random_equidistant_range_assignment<float>(cluster_indices_.size(), color_scale_values);
-    make_rgb_scale<float, pcl::RGB>(color_scale_values, cluster_rgb, COLOR_MAP_RAINBOW);
+    make_rgb_scale<float, pcl::RGB>(color_scale_values, cluster_rgb, use_color_map);
     
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_colored = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
     
@@ -150,7 +153,35 @@ class PlaneSegmentation {
   }
   
     
-  
+  void euclidean_clustering_on_planes() {
+	  std::vector<pcl::PointIndices::Ptr> new_cluster_indices;
+	  std::vector<pcl::ModelCoefficients::Ptr> new_cluster_coeffs;
+	  
+	  pcl::EuclideanClusterExtraction<PointT> ec;
+	  ec.setMinClusterSize(50);
+	  ec.setMaxClusterSize(1000000);
+	  ec.setClusterTolerance(maxrad2stage_);
+	  ec.setSearchMethod(tree_);
+	  ec.setInputCloud(cloud_);
+	   
+	for(int cl=0; cl<cluster_indices_.size(); cl++) {
+		std::cout << "Cluster " << cl << "\n";
+		ec.setIndices (cluster_indices_[cl]);
+	  
+		std::vector <pcl::PointIndices> clusters;
+		ec.extract(clusters);
+	  
+		for(int i=0; i<clusters.size(); i++) {
+			  pcl::PointIndices::Ptr clusterptr = pcl::PointIndices::Ptr(new pcl::PointIndices);
+			  clusterptr->indices = std::vector<int>(clusters[i].indices);
+			  new_cluster_indices.push_back(clusterptr);
+			  new_cluster_coeffs.push_back(cluster_coeffs_[cl]);
+		}
+	}
+	
+	cluster_indices_ = new_cluster_indices;
+	cluster_coeffs_ = new_cluster_coeffs;
+  }
   
   
   
@@ -167,6 +198,7 @@ class PlaneSegmentation {
   double samples_max_dist_;
   double eps_angle_;
   double norm_est_rad_;
+  double maxrad2stage_;
   
 };
 
@@ -308,7 +340,8 @@ double g_samples_max_dist = 1;
 double g_eps_angle = 0.05235987755;
 double g_norm_est_rad = 0.05;
 bool g_project_points = false;
-
+bool g_use_coolwarm_vis = false;
+double g_2stage_rad = 0.05;
 
 int
 main (int argc, char** argv)
@@ -320,7 +353,9 @@ main (int argc, char** argv)
     << "-s RANSAC samples max distance\n"
     << "-e RANSAC Epsilon angle, max deviation in normal\n"
     << "-r normal estimation search radius\n"
-    << "-p boolean, project points onto planes\n";
+    << "-p Boolean, project points onto planes\n"
+    << "-f search distance for second stage clustering of planes\n"
+    << "-c Boolean, use coolwarm colour scale in visualizer, otherwise rainbow\n";
     return 1;
   }
   
@@ -333,6 +368,8 @@ main (int argc, char** argv)
   pcl::console::parse_argument(argc, argv, "-e", g_eps_angle);
   pcl::console::parse_argument(argc, argv, "-r", g_norm_est_rad);
   pcl::console::parse_argument(argc, argv, "-p", g_project_points);
+  pcl::console::parse_argument(argc, argv, "-f", g_2stage_rad);
+  pcl::console::parse_argument(argc, argv, "-c", g_use_coolwarm_vis);
   
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
   
@@ -340,14 +377,16 @@ main (int argc, char** argv)
     return 1;
     
 
-  PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad);
+  PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad, g_2stage_rad);
   
   ps.run();
   
   if(g_project_points)
 	ps.project_points();
 
-  ps.visualize();
+  ps.euclidean_clustering_on_planes();
+  
+  ps.visualize(g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW);
   
   return (0);
 }
