@@ -9,5 +9,5 @@ include_directories(${PCL_INCLUDE_DIRS} ${common_SOURCE_DIR}/include)
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-add_executable (plane_clustering plane_clustering.cpp)
+add_executable (plane_clustering plane_clustering.cpp ${common_SOURCE_DIR}/include/common.h)
 target_link_libraries (plane_clustering ${PCL_LIBRARIES})

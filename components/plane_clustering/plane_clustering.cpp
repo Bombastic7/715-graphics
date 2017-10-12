@@ -83,6 +83,36 @@ class PlaneSegmentation {
     }
   }
   
+  
+  void project_points() {
+	for(int cl=0; cl<cluster_indices_.size(); cl++) {
+		
+		float a = cluster_coeffs_[cl]->values[0];
+		float b = cluster_coeffs_[cl]->values[1];
+		float c = cluster_coeffs_[cl]->values[2];
+		float d = cluster_coeffs_[cl]->values[3];
+		float s = pow(a, 2) + pow(b, 2) + pow(c, 2);
+		
+		
+		for(int i=0; i<cluster_indices_[cl]->indices.size(); i++) {
+			int p = cluster_indices_[cl]->indices[i];
+			float u = cloud_->points[p].x;
+			float v = cloud_->points[p].y;
+			float w = cloud_->points[p].z;
+			
+			float t = (a*u + b*v + c*w + d) / s;
+			float x0 = u - a * t;
+			float y0 = v - b * t;
+			float z0 = w - c * t;
+			
+			cloud_->points[p].x = x0;
+			cloud_->points[p].y = y0;
+			cloud_->points[p].z = z0;
+		}
+	}
+  }
+  
+  
   void visualize() {
     std::vector<float> color_scale_values;
     pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
@@ -277,7 +307,7 @@ double g_dist_th = 0.05;
 double g_samples_max_dist = 1;
 double g_eps_angle = 0.05235987755;
 double g_norm_est_rad = 0.05;
-
+bool g_project_points = false;
 
 
 int
@@ -289,7 +319,8 @@ main (int argc, char** argv)
     << "-d RANSAC plane model distance threshold\n"
     << "-s RANSAC samples max distance\n"
     << "-e RANSAC Epsilon angle, max deviation in normal\n"
-    << "-r normal estimation search radius\n";
+    << "-r normal estimation search radius\n"
+    << "-p boolean, project points onto planes\n";
     return 1;
   }
   
@@ -301,6 +332,7 @@ main (int argc, char** argv)
   pcl::console::parse_argument(argc, argv, "-s", g_samples_max_dist);
   pcl::console::parse_argument(argc, argv, "-e", g_eps_angle);
   pcl::console::parse_argument(argc, argv, "-r", g_norm_est_rad);
+  pcl::console::parse_argument(argc, argv, "-p", g_project_points);
   
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
   
@@ -311,6 +343,10 @@ main (int argc, char** argv)
   PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad);
   
   ps.run();
+  
+  if(g_project_points)
+	ps.project_points();
+
   ps.visualize();
   
   return (0);
