@@ -24,7 +24,14 @@ template<typename PointT>
 class PlaneSegmentation {
   public:
   
-  PlaneSegmentation(typename pcl::PointCloud<PointT>::Ptr cloud, double dist_th, double samples_max_dist, double eps_angle, double norm_est_rad, double maxrad2stage) :
+  PlaneSegmentation(  typename pcl::PointCloud<PointT>::Ptr cloud, 
+                      double dist_th, 
+                      double samples_max_dist, 
+                      double eps_angle, 
+                      double norm_est_rad, 
+                      double maxrad2stage,
+                      double adjsearchrad,
+                      int adjsearchk) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     valid_indices_(new pcl::PointIndices),
     tree_(new typename pcl::search::KdTree<PointT>),
@@ -33,7 +40,9 @@ class PlaneSegmentation {
     samples_max_dist_(samples_max_dist),
     eps_angle_(eps_angle),
     norm_est_rad_(norm_est_rad),
-	maxrad2stage_(maxrad2stage)
+    maxrad2stage_(maxrad2stage),
+    adjsearchrad_(adjsearchrad),
+    adjsearchk_(adjsearchk)
   {
     for(int i=0; i<cloud->size(); i++) {
       valid_indices_->indices.push_back(i);
@@ -116,12 +125,12 @@ class PlaneSegmentation {
   }
   
   
-  void visualize(int use_color_map = COLOR_MAP_RAINBOW) {
+  void visualize(int use_color_map = COLOR_MAP_RAINBOW, int use_seed = 12345) {
     std::vector<float> color_scale_values;
     pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
     cluster_rgb->points.resize(cluster_indices_.size());
     
-    make_random_equidistant_range_assignment<float>(cluster_indices_.size(), color_scale_values);
+    make_random_equidistant_range_assignment<float>(cluster_indices_.size(), color_scale_values, use_seed);
     make_rgb_scale<float, pcl::RGB>(color_scale_values, cluster_rgb, use_color_map);
     
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_colored = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -184,6 +193,109 @@ class PlaneSegmentation {
   }
   
   
+  int pos_to_reg(float x, float r) {
+    if(x >= 0)
+      return x / r;
+    return x / r - 1;
+  }
+  
+  
+  //Consider clusters A and B adjacent if there are at least adjsearchk_ points in A that are within 2*sqrt(3)*adjsearchrad_ distance of some point in B and vice versa.
+  void compute_adjacency() {
+    const float r = adjsearchrad_;
+    
+    std::vector<int> cluster_assignment = std::vector<int>(cloud_->size());
+    
+    for(int c=0; c<cluster_indices_.size(); c++)
+      for(int i=0; i<cluster_indices_[c]->indices.size(); i++)
+        cluster_assignment[cluster_indices_[c]->indices[i]] = c;
+    
+    
+    //Divide model space into cube regions of length r. Region identified by coordinates (x,y,z).
+    //One corner is (x,y,z)*r. Opposite corner is (x +- 1, y +- 1, z +- 1), add 1 if dimension >= 0, else subtract 1.
+    
+    //For each region, count number of points contained for each cluster.
+    
+    std::map<std::tuple<int,int,int>, std::map<int,int>> region_counts;
+    
+    for(int p=0; p<cloud_->size(); p++) {
+      std::tuple<int,int,int> reg = std::make_tuple(  pos_to_reg(cloud_->points[p].x, r), 
+                                                      pos_to_reg(cloud_->points[p].y, r),
+                                                      pos_to_reg(cloud_->points[p].z, r));
+      
+      if(region_counts.count(reg) == 0)
+        region_counts[reg] = std::map<int,int>();
+      
+      region_counts[reg][cluster_assignment[p]]++;
+    }
+    
+    //For each region R, for each cluster C in R, for each cluster D != C in R and its 26 adjacent regions, 
+    //  count n = # points of C in R, m = # points of D in R+adj regions
+    //  pair_counts[(C,D)] += min(n,m)
+    
+    std::map<std::tuple<int,int>, int> pair_counts;
+    
+    
+    for(auto regit=region_counts.begin(); regit!=region_counts.end(); ++regit) {
+      
+      int x = std::get<0>(regit->first);
+      int y = std::get<1>(regit->first);
+      int z = std::get<2>(regit->first);
+      
+      std::map<int,int> super_region_counts;
+      
+      for(int xd=-1; xd <= 1; xd += 1) {
+        for(int yd=-1; yd <= 1; yd += 1) {
+          for(int zd=-1; zd <= 1; zd += 1) {
+            std::tuple<int,int,int> adjreg = std::make_tuple(x + xd, y + yd, z + zd);
+            
+            if(region_counts.count(adjreg) == 0)
+              continue;
+            
+            for(auto it=region_counts[adjreg].begin(); it!=region_counts[adjreg].end(); ++it) {
+              super_region_counts[it->first] += it->second;
+            }
+          }
+        }
+      }
+      
+      for(auto it=regit->second.begin(); it!=regit->second.end(); ++it) {
+        for(auto it2=super_region_counts.begin(); it2!=super_region_counts.end(); ++it2) {
+          
+          if(it->first == it2->first)
+            continue;
+          
+          std::tuple<int,int> t = std::make_tuple(it->first, it2->first);
+          int n = it->second < it2->second ? it->second : it2->second;
+          
+          pair_counts[t] += n;
+        }
+      }
+    }
+    
+    std::vector<std::vector<int>> adjlist = std::vector<std::vector<int>>(cluster_indices_.size());
+    
+    for(int i=0; i<cluster_indices_.size(); i++) {
+      for(int j=i+1; j<cluster_indices_.size(); j++) {
+        if(pair_counts[std::make_tuple(i,j)] > adjsearchk_ && pair_counts[std::make_tuple(j,i)] > adjsearchk_) {
+          adjlist[i].push_back(j);
+          adjlist[j].push_back(i);
+        }
+      }
+    }
+    
+    for(int i=0; i<adjlist.size(); i++) {
+      std::cout << "Cluster " << i << ": ";
+      for(int j=0; j<adjlist[i].size(); j++) {
+        std::cout << adjlist[i][j] << " ";
+      }
+      std::cout << "\n";
+    }
+    
+    
+  }
+  
+  
   
   private:
   
@@ -199,7 +311,8 @@ class PlaneSegmentation {
   double eps_angle_;
   double norm_est_rad_;
   double maxrad2stage_;
-  
+  double adjsearchrad_;
+  int adjsearchk_;
 };
 
 
@@ -342,6 +455,8 @@ double g_norm_est_rad = 0.05;
 bool g_project_points = false;
 bool g_use_coolwarm_vis = false;
 double g_2stage_rad = 0.05;
+double g_adjsearchrad = 0.05;
+int g_adjsearchk = 50;
 
 int
 main (int argc, char** argv)
@@ -355,7 +470,9 @@ main (int argc, char** argv)
     << "-r normal estimation search radius\n"
     << "-p Boolean, project points onto planes\n"
     << "-f search distance for second stage clustering of planes\n"
-    << "-c Boolean, use coolwarm colour scale in visualizer, otherwise rainbow\n";
+    << "-c Boolean, use coolwarm colour scale in visualizer, otherwise rainbow\n"
+    << "-a adjacency region size\n"
+    << "-b adjacency number of points threshold\n";
     return 1;
   }
   
@@ -370,6 +487,8 @@ main (int argc, char** argv)
   pcl::console::parse_argument(argc, argv, "-p", g_project_points);
   pcl::console::parse_argument(argc, argv, "-f", g_2stage_rad);
   pcl::console::parse_argument(argc, argv, "-c", g_use_coolwarm_vis);
+  pcl::console::parse_argument(argc, argv, "-a", g_adjsearchrad);
+  pcl::console::parse_argument(argc, argv, "-b", g_adjsearchk);
   
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
   
@@ -377,7 +496,7 @@ main (int argc, char** argv)
     return 1;
     
 
-  PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad, g_2stage_rad);
+  PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad, g_2stage_rad, g_adjsearchrad, g_adjsearchk);
   
   ps.run();
   
@@ -386,7 +505,9 @@ main (int argc, char** argv)
 
   ps.euclidean_clustering_on_planes();
   
-  ps.visualize(g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW);
+  ps.compute_adjacency();
+  
+  ps.visualize(g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
   
   return (0);
 }
