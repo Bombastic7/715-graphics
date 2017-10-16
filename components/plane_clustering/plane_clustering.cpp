@@ -1,8 +1,11 @@
 #include <algorithm>
 #include <iostream>
+#include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <cmath>
+#include <boost/program_options.hpp>
 #include <pcl/common/io.h>
 #include <pcl/console/parse.h>
 #include <pcl/features/normal_3d.h>
@@ -20,111 +23,44 @@
 
 
 
+
 template<typename PointT>
-class PlaneSegmentation {
+class FaceGraphSegmentor {
   public:
   
-  PlaneSegmentation(  typename pcl::PointCloud<PointT>::Ptr cloud, 
-                      double dist_th, 
-                      double samples_max_dist, 
-                      double eps_angle, 
+  FaceGraphSegmentor( typename pcl::PointCloud<PointT>::Ptr cloud, 
+                      double p_norm_est_rad,
+                      double p_pc_dist_th, 
+                      double p_pc_samples_max_dist, 
+                      double p_pc_eps_angle, 
                       double norm_est_rad, 
-                      double maxrad2stage,
-                      double adjsearchrad,
-                      int adjsearchk) :
+                      double p_fc_maxrad,
+                      double p_adj_sz,
+                      int p_adj_k) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
-    valid_indices_(new pcl::PointIndices),
-    tree_(new typename pcl::search::KdTree<PointT>),
+    kdtree_(new typename pcl::search::KdTree<PointT>),
     cloud_(cloud),
-    dist_th_(dist_th),
-    samples_max_dist_(samples_max_dist),
-    eps_angle_(eps_angle),
-    norm_est_rad_(norm_est_rad),
-    maxrad2stage_(maxrad2stage),
-    adjsearchrad_(adjsearchrad),
-    adjsearchk_(adjsearchk)
+    p_norm_est_rad_(p_norm_est_rad),
+    p_pc_dist_th_(p_pc_dist_th),
+    p_pc_samples_max_dist_(p_pc_samples_max_dist),
+    p_pc_eps_angle_(p_pc_eps_angle),
+    p_fc_maxrad_(p_fc_maxrad),
+    p_adj_sz_(p_adj_sz),
+    p_adj_k_(p_adj_k)
   {
-    for(int i=0; i<cloud->size(); i++) {
-      valid_indices_->indices.push_back(i);
-    }
-    
-    pcl::NormalEstimation<PointT, pcl::Normal> normal_est;
-    normal_est.setInputCloud (cloud_);
-    normal_est.setSearchMethod (tree_);
-    normal_est.setRadiusSearch (norm_est_rad_);
-    normal_est.compute (*cloud_normals_);
-    
-    seg_.setOptimizeCoefficients (true);
-    seg_.setModelType (pcl::SACMODEL_NORMAL_PLANE);
-    seg_.setMethodType (pcl::SAC_RANSAC);
-    seg_.setDistanceThreshold (dist_th_);
-    seg_.setEpsAngle(eps_angle_);
-    seg_.setSamplesMaxDist(samples_max_dist_, tree_);
-    seg_.setInputCloud (cloud_);
-    seg_.setIndices(valid_indices_);
-    seg_.setInputNormals(cloud_normals_);
   }
   
-  void run() {
-    while(true) {      
-      if(valid_indices_->indices.size() < 3)
-        break;
-      
-      std::cout << "Valid indices: " << valid_indices_->indices.size() << "\n";
-      pcl::PointIndices::Ptr plane_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-      pcl::ModelCoefficients::Ptr plane_coeffs = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients);
-      seg_.segment (*plane_indices, *plane_coeffs);
-      
-      if(plane_indices->indices.size() > 0) {
-        cluster_indices_.push_back(plane_indices);
-        cluster_coeffs_.push_back(plane_coeffs);
-        
-        pcl::PointIndices::Ptr new_valid_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-      
-        std::sort(plane_indices->indices.begin(), plane_indices->indices.end()); //Are the returned indices sorted?
-        std::set_difference(valid_indices_->indices.begin(), valid_indices_->indices.end(), 
-                            plane_indices->indices.begin(), plane_indices->indices.end(), 
-                            std::back_inserter(new_valid_indices->indices));
-      
-        valid_indices_ = new_valid_indices;
-        seg_.setIndices(valid_indices_);
-      }
-      else
-        break;
 
-    }
+   
+  int run() {
+    compute_normals();
+    segment_planes();
+    segment_faces();
+    compute_adjacency();
   }
   
   
-  void project_points() {
-	for(int cl=0; cl<cluster_indices_.size(); cl++) {
-		
-		float a = cluster_coeffs_[cl]->values[0];
-		float b = cluster_coeffs_[cl]->values[1];
-		float c = cluster_coeffs_[cl]->values[2];
-		float d = cluster_coeffs_[cl]->values[3];
-		float s = pow(a, 2) + pow(b, 2) + pow(c, 2);
-		
-		
-		for(int i=0; i<cluster_indices_[cl]->indices.size(); i++) {
-			int p = cluster_indices_[cl]->indices[i];
-			float u = cloud_->points[p].x;
-			float v = cloud_->points[p].y;
-			float w = cloud_->points[p].z;
-			
-			float t = (a*u + b*v + c*w + d) / s;
-			float x0 = u - a * t;
-			float y0 = v - b * t;
-			float z0 = w - c * t;
-			
-			cloud_->points[p].x = x0;
-			cloud_->points[p].y = y0;
-			cloud_->points[p].z = z0;
-		}
-	}
-  }
-  
-  
+    
   void visualize(int use_color_map = COLOR_MAP_RAINBOW, int use_seed = 12345) {
     std::vector<float> color_scale_values;
     pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
@@ -162,15 +98,74 @@ class PlaneSegmentation {
   }
   
     
-  void euclidean_clustering_on_planes() {
+  
+  protected:
+  
+  void compute_normals() {
+    pcl::NormalEstimation<PointT, pcl::Normal> normal_est;
+    normal_est.setInputCloud (cloud_);
+    normal_est.setSearchMethod (kdtree_);
+    normal_est.setRadiusSearch (p_norm_est_rad_);
+    normal_est.compute (*cloud_normals_);
+  }
+  
+  void segment_planes() {
+    
+    pcl::PointIndices::Ptr valid_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+  
+    for(int i=0; i<cloud_->size(); i++) {
+      valid_indices->indices.push_back(i);
+    }
+    
+    pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg;    
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (pcl::SACMODEL_NORMAL_PLANE);
+    seg.setMethodType (pcl::SAC_RANSAC);
+    seg.setDistanceThreshold (p_pc_dist_th_);
+    seg.setEpsAngle(p_pc_eps_angle_);
+    seg.setSamplesMaxDist(p_pc_samples_max_dist_, kdtree_);
+    seg.setInputCloud (cloud_);
+    seg.setInputNormals(cloud_normals_);
+    seg.setIndices(valid_indices);
+    
+    while(true) {      
+      if(valid_indices->indices.size() < 3)
+        break;
+      
+      std::cout << "Valid indices: " << valid_indices->indices.size() << "\n";
+      pcl::PointIndices::Ptr plane_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+      pcl::ModelCoefficients::Ptr plane_coeffs = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients);
+      seg.segment (*plane_indices, *plane_coeffs);
+      
+      if(plane_indices->indices.size() > 0) {
+        cluster_indices_.push_back(plane_indices);
+        cluster_coeffs_.push_back(plane_coeffs);
+        
+        pcl::PointIndices::Ptr new_valid_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+      
+        std::sort(plane_indices->indices.begin(), plane_indices->indices.end()); //Are the returned indices sorted?
+        std::set_difference(valid_indices->indices.begin(), valid_indices->indices.end(), 
+                            plane_indices->indices.begin(), plane_indices->indices.end(), 
+                            std::back_inserter(new_valid_indices->indices));
+      
+        valid_indices = new_valid_indices;
+        seg.setIndices(valid_indices);
+      }
+      else
+        break;
+
+    }
+  }
+  
+  void segment_faces() {
 	  std::vector<pcl::PointIndices::Ptr> new_cluster_indices;
 	  std::vector<pcl::ModelCoefficients::Ptr> new_cluster_coeffs;
 	  
 	  pcl::EuclideanClusterExtraction<PointT> ec;
 	  ec.setMinClusterSize(50);
 	  ec.setMaxClusterSize(1000000);
-	  ec.setClusterTolerance(maxrad2stage_);
-	  ec.setSearchMethod(tree_);
+	  ec.setClusterTolerance(p_fc_maxrad_);
+	  ec.setSearchMethod(kdtree_);
 	  ec.setInputCloud(cloud_);
 	   
 	for(int cl=0; cl<cluster_indices_.size(); cl++) {
@@ -185,24 +180,16 @@ class PlaneSegmentation {
 			  clusterptr->indices = std::vector<int>(clusters[i].indices);
 			  new_cluster_indices.push_back(clusterptr);
 			  new_cluster_coeffs.push_back(cluster_coeffs_[cl]);
-		}
-	}
+      }
+    }
 	
-	cluster_indices_ = new_cluster_indices;
-	cluster_coeffs_ = new_cluster_coeffs;
+    cluster_indices_ = new_cluster_indices;
+    cluster_coeffs_ = new_cluster_coeffs;
   }
   
-  
-  int pos_to_reg(float x, float r) {
-    if(x >= 0)
-      return x / r;
-    return x / r - 1;
-  }
-  
-  
-  //Consider clusters A and B adjacent if there are at least adjsearchk_ points in A that are within 2*sqrt(3)*adjsearchrad_ distance of some point in B and vice versa.
   void compute_adjacency() {
-    const float r = adjsearchrad_;
+    //Consider clusters A and B adjacent if there are at least p_adj_k_ points in A that are within (2*sqrt(3)*p_adj_sz_) distance of some point in B and vice versa.
+    const float r = p_adj_sz_;
     
     std::vector<int> cluster_assignment = std::vector<int>(cloud_->size());
     
@@ -273,21 +260,21 @@ class PlaneSegmentation {
       }
     }
     
-    std::vector<std::vector<int>> adjlist = std::vector<std::vector<int>>(cluster_indices_.size());
+    adjlist_ = std::vector<std::vector<int>>(cluster_indices_.size());
     
     for(int i=0; i<cluster_indices_.size(); i++) {
       for(int j=i+1; j<cluster_indices_.size(); j++) {
-        if(pair_counts[std::make_tuple(i,j)] > adjsearchk_ && pair_counts[std::make_tuple(j,i)] > adjsearchk_) {
-          adjlist[i].push_back(j);
-          adjlist[j].push_back(i);
+        if(pair_counts[std::make_tuple(i,j)] > p_adj_k_ && pair_counts[std::make_tuple(j,i)] > p_adj_k_) {
+          adjlist_[i].push_back(j);
+          adjlist_[j].push_back(i);
         }
       }
     }
     
-    for(int i=0; i<adjlist.size(); i++) {
+    for(int i=0; i<adjlist_.size(); i++) {
       std::cout << "Cluster " << i << ": ";
-      for(int j=0; j<adjlist[i].size(); j++) {
-        std::cout << adjlist[i][j] << " ";
+      for(int j=0; j<adjlist_[i].size(); j++) {
+        std::cout << adjlist_[i][j] << " ";
       }
       std::cout << "\n";
     }
@@ -296,199 +283,129 @@ class PlaneSegmentation {
   }
   
   
-  
-  private:
-  
-  std::vector<pcl::PointIndices::Ptr> cluster_indices_;
-  std::vector<pcl::ModelCoefficients::Ptr> cluster_coeffs_;
-  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_;
-  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_;
-  pcl::PointIndices::Ptr valid_indices_;
-  typename pcl::search::KdTree<PointT>::Ptr tree_;
-  typename pcl::PointCloud<PointT>::Ptr cloud_;
-  double dist_th_;
-  double samples_max_dist_;
-  double eps_angle_;
-  double norm_est_rad_;
-  double maxrad2stage_;
-  double adjsearchrad_;
-  int adjsearchk_;
-};
-
-
-
-/*
-
-#include <algorithm>
-#include <cassert>
-#include <cmath>
-#include <deque>
-#include <queue>
-#include <Eigen/Core>
-
-struct CompIndicesByCurvature {
-  CompIndicesByCurvature(pcl::PointCloud<pcl::Normal>::Ptr cloud_normals):
-    cloud_normals_ = cloud_normals
-  {}
-  
-  bool operator()(int a, int b) {
-    return cloud_normals->points[a].curvature < cloud_normals->points[b].curvature;
+  static int pos_to_reg(float x, float r) {
+    if(x >= 0)
+      return x / r;
+    return x / r - 1;
   }
   
-  private:
-  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_;
-};
 
-
-template<typename PointT>
-void make_plane_clustering2( typename pcl::PointCloud<PointT>::Ptr cloud,
-                            std::vector<pcl::PointIndices::Ptr>& cluster_indices,
-                            std::vector<pcl::ModelCoefficients::Ptr>& cluster_coeffs) {
-
-  const double Reg_Growing_Radius = 0.1;
-  const int Reg_Growing_k = 20;
-  const float Reg_Growing_Angle_Th = 0.05235987755; //3 degrees.
-  
-  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
-  
-  pcl::NormalEstimation<PointT, pcl::Normal> normal_est;
-  normal_est.setInputCloud (cloud);
-
-  typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-  normal_est.setSearchMethod (tree);
-  normal_est.setRadiusSearch (rad);
-  normal_est.compute (*cloud_normals);
-
-  
-  int cur_cluster = 0;
-  int assigned_points = 0;
-  std::vector<int> cluster_assignment(cloud->size());
-  std::priority_queue<int, std::vector<int>, CompIndicesByCurvature> curv_sorted(CompIndicesByCurvature(cloud_normals));
-  std::deque seed_queue;
-  std::vector<int> centroids;
-  
-  for(int i=0; i<cloud->size(); i++) {
-    curv_sorted.push(i);
-  }
-  
-  while(assigned_points < cloud->size()) {
-    cur_cluster++;
-    
-    int centroid_point;
-    do { 
-      centroid_point = curv_sorted.pop();
-    } while(cluster_assignment[centroid_point] != 0);
-    
-    Eigen::Vector3f centroid_normal = cloud->points[centroid_point].getNormalVector3fMap();
-    
-    seed_queue.push(centroid_point);
-    centroids.push_back(centroid_point);
-    
-    while(!seed_queue.empty()) {
-      int p = seed_queue.pop();
-      cluster_assignment[p] = cur_cluster;
-      assigned_points++;
+  void project_points() {
+    for(int cl=0; cl<cluster_indices_.size(); cl++) {
       
-      std::vector<int> nghbr_indices(Reg_Growing_k);
-      std::vector<float> nghbr_sqdst(Reg_Growing_k);
+      float a = cluster_coeffs_[cl]->values[0];
+      float b = cluster_coeffs_[cl]->values[1];
+      float c = cluster_coeffs_[cl]->values[2];
+      float d = cluster_coeffs_[cl]->values[3];
+      float s = pow(a, 2) + pow(b, 2) + pow(c, 2);
       
-      int ngbhrs = tree.radiusSearch(cloud->points[p], Reg_Growing_Radius, nghbr_indices, nghbr_sqdst, Reg_Growing_k);
       
-      for(int i=0; i<nghbrs; i++) {
-        int q = nghbr_indices[i];
+      for(int i=0; i<cluster_indices_[cl]->indices.size(); i++) {
+        int p = cluster_indices_[cl]->indices[i];
+        float u = cloud_->points[p].x;
+        float v = cloud_->points[p].y;
+        float w = cloud_->points[p].z;
         
-        if(cluster_assignment[q] != 0)
-          continue;
+        float t = (a*u + b*v + c*w + d) / s;
+        float x0 = u - a * t;
+        float y0 = v - b * t;
+        float z0 = w - c * t;
         
-        Eigen::Vector3f q_n = cloud->points[q].getNormalVector3fMap();
-        
-        float angle = acos(centroid_normal.dot(q_n));
-        
-        if(angle <= Reg_Growing_Angle_Th) {
-          seed_queue.push(q);
-        }
+        cloud_->points[p].x = x0;
+        cloud_->points[p].y = y0;
+        cloud_->points[p].z = z0;
       }
     }
   }
   
 
-  assert(assigned_points == cloud->size());
-  assert(centroids.size() == cur_cluster);
-  
-  for(int i=0; i<cur_cluster; i++) {
-    pcl::PointIndices::Ptr indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-    cluster_indices.push_back(indices);
-  }
-  
-  for(int i=0; i<cloud->size(); i++) {
-    cluster_indices.at(cluster_assignment[i] - 1)->indices.push_back(i);
-  }
-  
-  for(int i=0; i<cur_cluster; i++) {
-    float x0 = cloud->points[centroids[i]].x;
-    float y0 = cloud->points[centroids[i]].y;
-    float z0 = cloud->points[centroids[i]].z;
-    float a = cloud_normals->points[centroids[i]].normal[0];
-    float b = cloud_normals->points[centroids[i]].normal[1];
-    float c = cloud_normals->points[centroids[i]].normal[2];
-    float d = - ( a * x0 + b * y0 + c * z0 );
-    
-    pcl::ModelCoefficients::Ptr c = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients));
-    c->values[0] = a;
-    c->values[0] = b;
-    c->values[0] = c;
-    c->values[0] = d;
-    cluster_coeffs.push_back(c);
-  }
 
-}
+  
+  
+  
+  
+  
 
-*/
+  std::vector<pcl::PointIndices::Ptr> cluster_indices_;
+  std::vector<pcl::ModelCoefficients::Ptr> cluster_coeffs_;
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_;
+  std::vector<std::vector<int>> adjlist_;
+  
+  typename pcl::search::KdTree<PointT>::Ptr kdtree_;
+  
+  typename pcl::PointCloud<PointT>::Ptr cloud_;
+  double p_pc_dist_th_;
+  double p_pc_samples_max_dist_;
+  double p_pc_eps_angle_;
+  double p_norm_est_rad_;
+  double p_fc_maxrad_;
+  double p_adj_sz_;
+  int p_adj_k_;
+};
+
+
+
+
 
 
 
 std::string g_inputfile;
-double g_dist_th = 0.05;
-double g_samples_max_dist = 1;
-double g_eps_angle = 0.05235987755;
+double g_pc_dist_th = 0.05;
+double g_pc_sample_max_dist = 1;
+double g_pc_eps_angle = 0.05235987755;
 double g_norm_est_rad = 0.05;
+double g_fc_maxrad = 0.05;
+double g_adj_sz = 0.05;
+int g_adj_k = 50;
 bool g_project_points = false;
 bool g_use_coolwarm_vis = false;
-double g_2stage_rad = 0.05;
-double g_adjsearchrad = 0.05;
-int g_adjsearchk = 50;
+
 
 int
 main (int argc, char** argv)
 {
+  namespace po = boost::program_options; 
+  
+  po::options_description params("Parameters");
+  params.add_options()
+    ("inputfile", po::value<std::string>(), "Input file, PLY or PCD"),
+    ("pc_dist_th", po::value<double>(), "Plane clustering, RANSAC distance threshold"),
+    ("pcsamplemaxdist", po::value<int>(), "Plane clustering, RANSAC max samples distance"),
+    ("pc_eps_angle", po::value<double>(), "Plane clustering, RANSAC max epsilon angle"),
+    ("pc_norm_est_rad", po::value<double>(), "Normal estimation search radius"),
+    ("fc_maxrad", po::value<double>(), "Face clustering, region growing search radius"),
+    ("adj_sz", po::value<double>(), "Adjacency computation, region size"),
+    ("adj_k", po::value<int>(), "Adjacency computation, min points for cluster");
+  
+  
   if(argc == 1) {
-    std::cout << "USAGE: \n"
-    << "-i input file\n"
-    << "-d RANSAC plane model distance threshold\n"
-    << "-s RANSAC samples max distance\n"
-    << "-e RANSAC Epsilon angle, max deviation in normal\n"
-    << "-r normal estimation search radius\n"
-    << "-p Boolean, project points onto planes\n"
-    << "-f search distance for second stage clustering of planes\n"
-    << "-c Boolean, use coolwarm colour scale in visualizer, otherwise rainbow\n"
-    << "-a adjacency region size\n"
-    << "-b adjacency number of points threshold\n";
+    std::cout << "USAGE: " << argv[0] << " config-file\n\n";
+    std::cout << params << "\n";
     return 1;
   }
   
-  std::string input_file;
-  float dist_th = 0.01;
+  po::variables_map vm;
+  {
+    std::ifstream ifs(argv[1]);
+    if(!ifs) {
+      std::cout << "Could not open config file\n";
+      return 1;
+    }
+    po::store(po::parse_config_file(ifs, params, true), vm);
+    
+  }
+
   
-  pcl::console::parse_argument(argc, argv, "-i", g_inputfile);
-  pcl::console::parse_argument(argc, argv, "-d", g_dist_th);
-  pcl::console::parse_argument(argc, argv, "-s", g_samples_max_dist);
-  pcl::console::parse_argument(argc, argv, "-e", g_eps_angle);
-  pcl::console::parse_argument(argc, argv, "-r", g_norm_est_rad);
-  pcl::console::parse_argument(argc, argv, "-p", g_project_points);
-  pcl::console::parse_argument(argc, argv, "-f", g_2stage_rad);
-  pcl::console::parse_argument(argc, argv, "-c", g_use_coolwarm_vis);
-  pcl::console::parse_argument(argc, argv, "-a", g_adjsearchrad);
-  pcl::console::parse_argument(argc, argv, "-b", g_adjsearchk);
+  g_inputfile = vm["inputfile"].as<std::string>(); std::cout << "a\n" << g_inputfile << "\n";
+  g_pc_dist_th = vm["pc_dist_th"].as<double>(); std::cout << "b\n";
+  g_pc_sample_max_dist = vm["pc_sample_max_dist"].as<double>(); std::cout << "c\n";
+  g_pc_eps_angle = vm["pc_eps_angle"].as<double>();
+  g_norm_est_rad = vm["norm_est_rad"].as<double>();
+  g_fc_maxrad = vm["fc_maxrad"].as<double>();
+  g_adj_sz = vm["adj_sz"].as<double>();
+  g_adj_k = vm["adj_k"].as<int>();
+
+
   
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
   
@@ -496,18 +413,19 @@ main (int argc, char** argv)
     return 1;
     
 
-  PlaneSegmentation<pcl::PointXYZ> ps(cloud, g_dist_th, g_samples_max_dist, g_eps_angle, g_norm_est_rad, g_2stage_rad, g_adjsearchrad, g_adjsearchk);
+  FaceGraphSegmentor<pcl::PointXYZ> seg(  cloud, 
+                                          g_norm_est_rad, 
+                                          g_pc_dist_th, 
+                                          g_pc_sample_max_dist, 
+                                          g_pc_eps_angle, 
+                                          g_norm_est_rad, 
+                                          g_fc_maxrad, 
+                                          g_adj_sz, 
+                                          g_adj_k);
   
-  ps.run();
+  seg.run();
   
-  if(g_project_points)
-	ps.project_points();
-
-  ps.euclidean_clustering_on_planes();
-  
-  ps.compute_adjacency();
-  
-  ps.visualize(g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
+  seg.visualize(g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
   
   return (0);
 }
