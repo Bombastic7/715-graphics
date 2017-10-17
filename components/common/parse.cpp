@@ -1,6 +1,8 @@
 #include "parse.h"
 #include <fstream>
 
+#pragma once
+
 int parse_config_file(std::string const& fn, std::map<std::string, std::string>& kv_map) {
 	kv_map.clear();
 

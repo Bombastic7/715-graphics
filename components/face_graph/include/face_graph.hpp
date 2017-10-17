@@ -2,20 +2,18 @@
 #include <iostream>
 #include <limits>
 #include <map>
-#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
 #include <cassert>
 #include <cmath>
 #include <Eigen/Core>
-/*
 #include <pcl/common/centroid.h>
 #include <pcl/common/io.h>
 #include <pcl/console/parse.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/filters/extract_indices.h>
 #include <pcl/ModelCoefficients.h>
-#include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -23,13 +21,11 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/visualization/pcl_visualizer.h>
-*/
 #include "common.h"
-#include "parse.h"
-#include "face_graph.hpp"
 
-/*
+#pragma once
+
+
 struct GeomDescriptors {
   double bb_x, bb_y, bb_z;
   double o_x, o_y, o_z;
@@ -37,7 +33,7 @@ struct GeomDescriptors {
 
 template<typename PointT>
 struct FaceCluster {
-  pcl::PointCloud<PointT>::Ptr cloud;
+  typename pcl::PointCloud<PointT>::Ptr cloud;
   GeomDescriptors geomdesc;
   PointT centroid;
 };
@@ -47,34 +43,39 @@ struct FaceEdgeProps {
 };
 
 
-  
+struct FaceGraphParameters {
+  double norm_est_k;
+  double pc_dist_th;
+  double pc_samples_max_dist; 
+  double pc_eps_angle; 
+  int pc_min_points;
+  double fc_maxrad;
+  double adj_sz;
+  int adj_k;
+  bool proj;
+};
 
 template<typename PointT>
 class FaceGraphSegmentor {
   public:
   
+
+  
+  
   FaceGraphSegmentor( typename pcl::PointCloud<PointT>::Ptr cloud, 
-                      double p_norm_est_k,
-                      double p_pc_dist_th, 
-                      double p_pc_samples_max_dist, 
-                      double p_pc_eps_angle, 
-                      int p_pc_min_points,
-                      double p_fc_maxrad,
-                      double p_adj_sz,
-                      int p_adj_k,
-					  bool p_proj) :
+                      FaceGraphParameters params) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     kdtree_(new typename pcl::search::KdTree<PointT>),
     cloud_(cloud),
-    p_norm_est_k_(p_norm_est_k),
-    p_pc_dist_th_(p_pc_dist_th),
-    p_pc_samples_max_dist_(p_pc_samples_max_dist),
-    p_pc_eps_angle_(p_pc_eps_angle),
-	p_pc_min_points_(p_pc_min_points),
-    p_fc_maxrad_(p_fc_maxrad),
-    p_adj_sz_(p_adj_sz),
-    p_adj_k_(p_adj_k),
-	p_proj_(p_proj)
+    p_norm_est_k_(params.norm_est_k),
+    p_pc_dist_th_(params.pc_dist_th),
+    p_pc_samples_max_dist_(params.pc_samples_max_dist),
+    p_pc_eps_angle_(params.pc_eps_angle),
+    p_pc_min_points_(params.pc_min_points),
+    p_fc_maxrad_(params.fc_maxrad),
+    p_adj_sz_(params.adj_sz),
+    p_adj_k_(params.adj_k),
+	p_proj_(params.proj)
   {
   }
   
@@ -92,42 +93,8 @@ class FaceGraphSegmentor {
 	return 0;
   }
   
-  
-    
-  void visualize(int use_color_map = COLOR_MAP_RAINBOW, int use_seed = 12345) {
-    std::vector<float> color_scale_values;
-    pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
-    cluster_rgb->points.resize(cluster_indices_.size());
-    
-    make_random_equidistant_range_assignment<float>(cluster_indices_.size(), color_scale_values, use_seed);
-    make_rgb_scale<float, pcl::RGB>(color_scale_values, cluster_rgb, use_color_map);
-    
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_colored = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
-    
-    pcl::copyPointCloud(*cloud_, *cloud_colored);
-    
-    for(int i=0; i<cloud_->size(); i++) {
-      cloud_colored->points[i].r = 255;
-      cloud_colored->points[i].g = 255;
-      cloud_colored->points[i].b = 255;
-    }
-  
-    for(int i=0; i<cluster_indices_.size(); i++) {
-      std::cout << "Cluster " << i << " color: " << (int)(cluster_rgb->points[i].r) << ", " << (int)(cluster_rgb->points[i].g) << ", " << (int)(cluster_rgb->points[i].b) << "\n";
-      for(int j=0; j<cluster_indices_[i]->indices.size(); j++) {
-        cloud_colored->points[cluster_indices_[i]->indices[j]].r = cluster_rgb->points[i].r;
-        cloud_colored->points[cluster_indices_[i]->indices[j]].g = cluster_rgb->points[i].g;
-        cloud_colored->points[cluster_indices_[i]->indices[j]].b = cluster_rgb->points[i].b;
-      }
-    }
-    
-    pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
-    viewer.addPointCloud<pcl::PointXYZRGB>(cloud_colored);
-    
-    while (!viewer.wasStopped()) {
-      viewer.spinOnce (100);
-      boost::this_thread::sleep (boost::posix_time::microseconds (100000));
-     }
+  std::vector<pcl::PointIndices::Ptr> const& get_clusters() {
+    return cluster_indices_;
   }
   
     
@@ -167,7 +134,7 @@ class FaceGraphSegmentor {
       if(valid_indices->indices.size() < 3)
         break;
       
-      std::cout << "Valid indices: " << valid_indices->indices.size() << "\n";
+      //std::cout << "Valid indices: " << valid_indices->indices.size() << "\n";
       pcl::PointIndices::Ptr plane_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
       pcl::ModelCoefficients::Ptr plane_coeffs = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients);
       seg.segment (*plane_indices, *plane_coeffs);
@@ -204,7 +171,7 @@ class FaceGraphSegmentor {
 	  ec.setInputCloud(cloud_);
 	   
 	for(int cl=0; cl<cluster_indices_.size(); cl++) {
-		std::cout << "Cluster " << cl << "\n";
+		//std::cout << "Cluster " << cl << "\n";
 		ec.setIndices (cluster_indices_[cl]);
 	  
 		std::vector <pcl::PointIndices> clusters;
@@ -309,13 +276,13 @@ class FaceGraphSegmentor {
       }
     }
     
-    for(int i=0; i<adjlist_.size(); i++) {
-      std::cout << "Cluster " << i << ": ";
-      for(int j=0; j<adjlist_[i].size(); j++) {
-        std::cout << adjlist_[i][j] << " ";
-      }
-      std::cout << "\n";
-    }
+    //for(int i=0; i<adjlist_.size(); i++) {
+    //  std::cout << "Cluster " << i << ": ";
+    //  for(int j=0; j<adjlist_[i].size(); j++) {
+    //    std::cout << adjlist_[i][j] << " ";
+      //}
+     // std::cout << "\n";
+    //}
   }
   
 
@@ -430,24 +397,23 @@ class FaceGraphSegmentor {
 		}
 		face_avg_bbox_lengths_ /= cluster_coeffs_.size();
 
-		for (int i = 0; i < cluster_indices_.size(); i++) {
-			for (int j = i; j < cluster_indices_.size(); j++) {
-				std::cout << i << "," << j << " : " << face_similarity(i, j) << "\n";
-			}
-		}
+		//for (int i = 0; i < cluster_indices_.size(); i++) {
+		//	for (int j = i; j < cluster_indices_.size(); j++) {
+		//		std::cout << i << "," << j << " : " << face_similarity(i, j) << "\n";
+		//	}
+		//}
 	}
   
   
 
   
-  
-  void extract_graph(std::vector<FaceCluster>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps> edgeprops) {
+  void extract_graph(std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps> edgeprops) {
     pcl::ExtractIndices<pcl::PointXYZ> ext;
     ext.setInputCloud(cloud_);
     ext.setNegative(false);
     
-    for(int i=0; i<cluster_indices_->size(); i++) {
-      FaceCluster fc;
+    for(int i=0; i<cluster_indices_.size(); i++) {
+      FaceCluster<PointT> fc;
       ext.setIndices(cluster_indices_[i]);
       ext.filter(fc.cloud);
       fc.geomdesc = face_geom_desc_[i];
@@ -459,16 +425,16 @@ class FaceGraphSegmentor {
     
     adjlist = adjlist_;
     
-    for(int i=0; i<adjlist_->size(); i++) {
+    for(int i=0; i<adjlist_.size(); i++) {
       for(int j=0; j<adjlist_[i].size(); j++) {
         std::tuple<int,int> e = std::make_tuple(i, adjlist[i][j]);
         
-        assert(e.first != e.second);
-        if(e.first > e.second)
+        assert(std::get<0>(e) != std::get<1>(e));
+        if(std::get<0>(e) > std::get<1>(e))
           continue;
         
         FaceEdgeProps prop;
-        prop.centroid_relpos = faces[e.first].centroid - faces[e.second].centroid;
+        prop.centroid_relpos = faces[std::get<1>(e)].centroid - faces[std::get<0>(e)].centroid;
         edgeprops[e] = prop;
       }
     }
@@ -497,66 +463,14 @@ class FaceGraphSegmentor {
   bool p_proj_;
 };
 
-*/
 
 
 
-
-
-std::string g_inputfile;
-double g_pc_dist_th = 0.05;
-double g_pc_sample_max_dist = 1;
-double g_pc_eps_angle = 0.05235987755;
-double g_pc_min_points = 50;
-double g_norm_est_k = 50;
-double g_fc_maxrad = 0.05;
-double g_adj_sz = 0.05;
-int g_adj_k = 50;
-bool g_project_points = false;
-bool g_use_coolwarm_vis = false;
-bool g_proj = false;
-
-int
-main (int argc, char** argv)
-{
-	if (argc == 1) {
-		std::cout << "USAGE: " << argv[0] << " config-file\n";
-		return 1;
-	}
-
-	std::map<std::string, std::string> param_map;
-
-	if (parse_config_file(argv[1], param_map) == -1) {
-		return 1;
-	}
-
-  FaceGraphParameters params;
-	try_parse_param(param_map, "inputfile", g_inputfile);
-	try_parse_param(param_map, "pc_dist_th", params.pc_dist_th);
-	try_parse_param(param_map, "pc_sample_max_dist", params.pc_samples_max_dist);
-	try_parse_param(param_map, "pc_eps_angle", params.pc_eps_angle);
-	try_parse_param(param_map, "pc_min_points", params.pc_min_points);
-	//try_parse_param(param_map, "norm_est_rad", params.norm_est_rad);
-	try_parse_param(param_map, "norm_est_k", params.norm_est_k);
-	try_parse_param(param_map, "fc_maxrad", params.fc_maxrad);
-	try_parse_param(param_map, "adj_sz", params.adj_sz);
-	try_parse_param(param_map, "adj_k", params.adj_k);
-	try_parse_param(param_map, "project_points", g_project_points);
-	try_parse_param(param_map, "use_coolwarm_vis", g_use_coolwarm_vis);
-	try_parse_param(param_map, "proj", params.proj);
-
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-  if(load_pcd_ply<pcl::PointXYZ>(g_inputfile, cloud) == -1)
-    return 1;
-
-  FaceGraphSegmentor<pcl::PointXYZ> seg(cloud, params);
+template<typename PointT>
+int build_face_graph(FaceGraphParameters const& params, typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps> edgeprops) {
   
+  FaceGraphSegmentor<PointT> seg (cloud, params);
   seg.run();
-  
-  visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
-  
-  return (0);
+  seg.extract_graph(faces, adjlist, edgeprops);
+  return 0;
 }
-
-

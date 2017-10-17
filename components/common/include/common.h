@@ -3,8 +3,17 @@
 #include <map>
 #include <random>
 #include <string>
+#include <vector>
+#include <boost/chrono.hpp>
+#include <boost/thread/thread.hpp>
 #include <pcl/io/ply_io.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/visualization/pcl_visualizer.h>
+
+#pragma once
+
 
 inline bool ends_with(std::string const & value, std::string const & ending)
 {
@@ -117,4 +126,41 @@ void make_random_equidistant_range_assignment(int n, std::vector<U>& vals, int s
 }
 
 
+
+template<typename PointT>
+void visualize_clusters(typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<pcl::PointIndices::Ptr> cluster_indices, int use_color_map = COLOR_MAP_RAINBOW, int use_seed = 12345) {
+  std::vector<float> color_scale_values;
+  pcl::PointCloud<pcl::RGB>::Ptr cluster_rgb = pcl::PointCloud<pcl::RGB>::Ptr(new pcl::PointCloud<pcl::RGB>);
+  cluster_rgb->points.resize(cluster_indices.size());
+  
+  make_random_equidistant_range_assignment<float>(cluster_indices.size(), color_scale_values, use_seed);
+  make_rgb_scale<float, pcl::RGB>(color_scale_values, cluster_rgb, use_color_map);
+  
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_colored = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
+  
+  pcl::copyPointCloud(*cloud, *cloud_colored);
+  
+  for(int i=0; i<cloud->size(); i++) {
+    cloud_colored->points[i].r = 255;
+    cloud_colored->points[i].g = 255;
+    cloud_colored->points[i].b = 255;
+  }
+
+  for(int i=0; i<cluster_indices.size(); i++) {
+    //std::cout << "Cluster " << i << " color: " << (int)(cluster_rgb->points[i].r) << ", " << (int)(cluster_rgb->points[i].g) << ", " << (int)(cluster_rgb->points[i].b) << "\n";
+    for(int j=0; j<cluster_indices[i]->indices.size(); j++) {
+      cloud_colored->points[cluster_indices[i]->indices[j]].r = cluster_rgb->points[i].r;
+      cloud_colored->points[cluster_indices[i]->indices[j]].g = cluster_rgb->points[i].g;
+      cloud_colored->points[cluster_indices[i]->indices[j]].b = cluster_rgb->points[i].b;
+    }
+  }
+  
+  pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
+  viewer.addPointCloud<pcl::PointXYZRGB>(cloud_colored);
+  
+  while (!viewer.wasStopped()) {
+    viewer.spinOnce (100);
+    boost::this_thread::sleep (boost::posix_time::microseconds (100000));
+   }
+}
 
