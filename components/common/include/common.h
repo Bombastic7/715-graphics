@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <iostream>
+#include <map>
 #include <random>
 #include <string>
 #include <pcl/io/ply_io.h>
@@ -113,3 +115,6 @@ void make_random_equidistant_range_assignment(int n, std::vector<U>& vals, int s
   std::mt19937 g(seed);
   std::shuffle(vals.begin(), vals.end(), g);
 }
+
+
+

@@ -20,6 +20,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include "common.h"
+#include "parse.h"
 
 
 
@@ -57,6 +58,7 @@ class FaceGraphSegmentor {
     segment_planes();
     segment_faces();
     compute_adjacency();
+	return 0;
   }
   
   
@@ -364,54 +366,32 @@ bool g_use_coolwarm_vis = false;
 int
 main (int argc, char** argv)
 {
-  namespace po = boost::program_options; 
-  
-  po::options_description params("Parameters");
-  params.add_options()
-    ("inputfile", po::value<std::string>(), "Input file, PLY or PCD"),
-    ("pc_dist_th", po::value<double>(), "Plane clustering, RANSAC distance threshold"),
-    ("pcsamplemaxdist", po::value<int>(), "Plane clustering, RANSAC max samples distance"),
-    ("pc_eps_angle", po::value<double>(), "Plane clustering, RANSAC max epsilon angle"),
-    ("pc_norm_est_rad", po::value<double>(), "Normal estimation search radius"),
-    ("fc_maxrad", po::value<double>(), "Face clustering, region growing search radius"),
-    ("adj_sz", po::value<double>(), "Adjacency computation, region size"),
-    ("adj_k", po::value<int>(), "Adjacency computation, min points for cluster");
-  
-  
-  if(argc == 1) {
-    std::cout << "USAGE: " << argv[0] << " config-file\n\n";
-    std::cout << params << "\n";
-    return 1;
-  }
-  
-  po::variables_map vm;
-  {
-    std::ifstream ifs(argv[1]);
-    if(!ifs) {
-      std::cout << "Could not open config file\n";
-      return 1;
-    }
-    po::store(po::parse_config_file(ifs, params, true), vm);
-    
-  }
+	if (argc == 1) {
+		std::cout << "USAGE: " << argv[0] << " config-file\n";
+		return 1;
+	}
 
-  
-  g_inputfile = vm["inputfile"].as<std::string>(); std::cout << "a\n" << g_inputfile << "\n";
-  g_pc_dist_th = vm["pc_dist_th"].as<double>(); std::cout << "b\n";
-  g_pc_sample_max_dist = vm["pc_sample_max_dist"].as<double>(); std::cout << "c\n";
-  g_pc_eps_angle = vm["pc_eps_angle"].as<double>();
-  g_norm_est_rad = vm["norm_est_rad"].as<double>();
-  g_fc_maxrad = vm["fc_maxrad"].as<double>();
-  g_adj_sz = vm["adj_sz"].as<double>();
-  g_adj_k = vm["adj_k"].as<int>();
+	std::map<std::string, std::string> param_map;
 
+	if (parse_config_file(argv[1], param_map) == -1) {
+		return 1;
+	}
 
-  
+	try_parse_param(param_map, "inputfile", g_inputfile);
+	try_parse_param(param_map, "pc_dist_th", g_pc_dist_th);
+	try_parse_param(param_map, "pc_sample_max_dist", g_pc_sample_max_dist);
+	try_parse_param(param_map, "pc_eps_angle", g_pc_eps_angle);
+	try_parse_param(param_map, "norm_est_rad", g_norm_est_rad);
+	try_parse_param(param_map, "fc_maxrad", g_fc_maxrad);
+	try_parse_param(param_map, "adj_sz", g_adj_sz);
+	try_parse_param(param_map, "adj_k", g_adj_k);
+	try_parse_param(param_map, "project_points", g_project_points);
+	try_parse_param(param_map, "use_coolwarm_vis", g_use_coolwarm_vis);
+
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  
+
   if(load_pcd_ply<pcl::PointXYZ>(g_inputfile, cloud) == -1)
     return 1;
-    
 
   FaceGraphSegmentor<pcl::PointXYZ> seg(  cloud, 
                                           g_norm_est_rad, 
