@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cmath>
 #include <boost/program_options.hpp>
+#include <Eigen/Core>
 #include <pcl/common/io.h>
 #include <pcl/console/parse.h>
 #include <pcl/features/normal_3d.h>
@@ -25,20 +26,60 @@
 #include "common.h"
 #include "parse.h"
 
+/*
+
+//Compute normals. PointT has xyz, normal[3], curvature
+template<typename PointT>
+int compute_normals(typename pcl::PointCloud<PointT>::Ptr cloud, float p_rad) {
+  typename pcl::search::KdTree<PointT> kdtree = typename pcl::search::KdTree<PointT>(new typename pcl::search::KdTree<PointT>)
+  pcl::NormalEstimation<PointT, PointT> normal_est;
+  normal_est.setInputCloud (cloud);
+  normal_est.setSearchMethod (kdtree);
+  normal_est.setRadiusSearch (p_rad);
+  normal_est.compute (*cloud);
+}
 
 
+float g_enforceNormalSimilarity_maxDeviation = 3.0f/180 * M_PI;
+bool enforceNormalSimilarity(const pcl::PointNormal& a, const pcl::PointNormal& b, float sqdist) {
+  eigen::Vector3f a_n = a.getNormalVector3fMap();
+  eigen::Vector3f b_n = b.getNormalVector3fMap();
+  float angle = acos(a_n.dot(b_n));
+}
+
+
+//Cluster cloud into faces using conditional Euclidean clustering, using normals as condition.
+int cluster_faces_cec(typename pcl::PointCloud<PointNormal>::Ptr cloud, std::vector<pcl::PointIndices>& clusters_indices) {
+  pcl::ConditionalEuclideanClustering<pcl::PointXYZI> cec (true);
+  cec.setInputCloud (cloud);
+  cec.setConditionFunction ();
+  cec.setClusterTolerance (0.09f);
+  cec.setMinClusterSize (5);
+  cec.setMaxClusterSize (30);
+  cec.segment (*clusters);
+  cec.getRemovedClusters (small_clusters, large_clusters);
+  
+}
+
+
+
+
+
+
+
+
+*/
 
 template<typename PointT>
 class FaceGraphSegmentor {
   public:
   
   FaceGraphSegmentor( typename pcl::PointCloud<PointT>::Ptr cloud, 
-                      double p_norm_est_rad,
+                      double p_norm_est_k,
                       double p_pc_dist_th, 
                       double p_pc_samples_max_dist, 
                       double p_pc_eps_angle, 
-					  int p_pc_min_points,
-                      double norm_est_rad, 
+                      int p_pc_min_points,
                       double p_fc_maxrad,
                       double p_adj_sz,
                       int p_adj_k,
@@ -46,7 +87,7 @@ class FaceGraphSegmentor {
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     kdtree_(new typename pcl::search::KdTree<PointT>),
     cloud_(cloud),
-    p_norm_est_rad_(p_norm_est_rad),
+    p_norm_est_k_(p_norm_est_k),
     p_pc_dist_th_(p_pc_dist_th),
     p_pc_samples_max_dist_(p_pc_samples_max_dist),
     p_pc_eps_angle_(p_pc_eps_angle),
@@ -118,7 +159,9 @@ class FaceGraphSegmentor {
     pcl::NormalEstimation<PointT, pcl::Normal> normal_est;
     normal_est.setInputCloud (cloud_);
     normal_est.setSearchMethod (kdtree_);
-    normal_est.setRadiusSearch (p_norm_est_rad_);
+    
+    //normal_est.setRadiusSearch (p_norm_est_rad_);
+    normal_est.setKSearch(p_norm_est_k_);
     normal_est.compute (*cloud_normals_);
   }
   
@@ -438,7 +481,7 @@ class FaceGraphSegmentor {
   double p_pc_samples_max_dist_;
   double p_pc_eps_angle_;
   int p_pc_min_points_;
-  double p_norm_est_rad_;
+  double p_norm_est_k_;
   double p_fc_maxrad_;
   double p_adj_sz_;
   int p_adj_k_;
@@ -456,7 +499,7 @@ double g_pc_dist_th = 0.05;
 double g_pc_sample_max_dist = 1;
 double g_pc_eps_angle = 0.05235987755;
 double g_pc_min_points = 50;
-double g_norm_est_rad = 0.05;
+double g_norm_est_k = 50;
 double g_fc_maxrad = 0.05;
 double g_adj_sz = 0.05;
 int g_adj_k = 50;
@@ -483,7 +526,8 @@ main (int argc, char** argv)
 	try_parse_param(param_map, "pc_sample_max_dist", g_pc_sample_max_dist);
 	try_parse_param(param_map, "pc_eps_angle", g_pc_eps_angle);
 	try_parse_param(param_map, "pc_min_points", g_pc_min_points);
-	try_parse_param(param_map, "norm_est_rad", g_norm_est_rad);
+	//try_parse_param(param_map, "norm_est_rad", g_norm_est_rad);
+	try_parse_param(param_map, "norm_est_k", g_norm_est_k);
 	try_parse_param(param_map, "fc_maxrad", g_fc_maxrad);
 	try_parse_param(param_map, "adj_sz", g_adj_sz);
 	try_parse_param(param_map, "adj_k", g_adj_k);
@@ -497,16 +541,15 @@ main (int argc, char** argv)
     return 1;
 
   FaceGraphSegmentor<pcl::PointXYZ> seg(  cloud, 
-                                          g_norm_est_rad, 
+                                          g_norm_est_k, 
                                           g_pc_dist_th, 
                                           g_pc_sample_max_dist, 
                                           g_pc_eps_angle, 
-										  g_pc_min_points,
-                                          g_norm_est_rad, 
+                                          g_pc_min_points,
                                           g_fc_maxrad, 
                                           g_adj_sz, 
                                           g_adj_k,
-										  g_proj);
+                                          g_proj);
   
   seg.run();
   
