@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
+#include <cassert>
 #include <cmath>
 #include <boost/program_options.hpp>
 #include <pcl/common/io.h>
@@ -34,10 +37,12 @@ class FaceGraphSegmentor {
                       double p_pc_dist_th, 
                       double p_pc_samples_max_dist, 
                       double p_pc_eps_angle, 
+					  int p_pc_min_points,
                       double norm_est_rad, 
                       double p_fc_maxrad,
                       double p_adj_sz,
-                      int p_adj_k) :
+                      int p_adj_k,
+					  bool p_proj) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     kdtree_(new typename pcl::search::KdTree<PointT>),
     cloud_(cloud),
@@ -45,9 +50,11 @@ class FaceGraphSegmentor {
     p_pc_dist_th_(p_pc_dist_th),
     p_pc_samples_max_dist_(p_pc_samples_max_dist),
     p_pc_eps_angle_(p_pc_eps_angle),
+	p_pc_min_points_(p_pc_min_points),
     p_fc_maxrad_(p_fc_maxrad),
     p_adj_sz_(p_adj_sz),
-    p_adj_k_(p_adj_k)
+    p_adj_k_(p_adj_k),
+	p_proj_(p_proj)
   {
   }
   
@@ -58,6 +65,10 @@ class FaceGraphSegmentor {
     segment_planes();
     segment_faces();
     compute_adjacency();
+
+	if (p_proj_)
+		project_points();
+	compute_geom_descriptors();
 	return 0;
   }
   
@@ -139,7 +150,7 @@ class FaceGraphSegmentor {
       pcl::ModelCoefficients::Ptr plane_coeffs = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients);
       seg.segment (*plane_indices, *plane_coeffs);
       
-      if(plane_indices->indices.size() > 0) {
+      if(plane_indices->indices.size() > p_pc_min_points_) {
         cluster_indices_.push_back(plane_indices);
         cluster_coeffs_.push_back(plane_coeffs);
         
@@ -193,7 +204,7 @@ class FaceGraphSegmentor {
     //Consider clusters A and B adjacent if there are at least p_adj_k_ points in A that are within (2*sqrt(3)*p_adj_sz_) distance of some point in B and vice versa.
     const float r = p_adj_sz_;
     
-    std::vector<int> cluster_assignment = std::vector<int>(cloud_->size());
+    std::vector<int> cluster_assignment = std::vector<int>(cloud_->size(), -1);
     
     for(int c=0; c<cluster_indices_.size(); c++)
       for(int i=0; i<cluster_indices_[c]->indices.size(); i++)
@@ -208,6 +219,9 @@ class FaceGraphSegmentor {
     std::map<std::tuple<int,int,int>, std::map<int,int>> region_counts;
     
     for(int p=0; p<cloud_->size(); p++) {
+		if (cluster_assignment[p] == -1)
+			continue;
+
       std::tuple<int,int,int> reg = std::make_tuple(  pos_to_reg(cloud_->points[p].x, r), 
                                                       pos_to_reg(cloud_->points[p].y, r),
                                                       pos_to_reg(cloud_->points[p].z, r));
@@ -320,11 +334,93 @@ class FaceGraphSegmentor {
     }
   }
   
+  float face_similarity(int a, int b) {
+	  assert(a >= 0 && b >= 0);
+	  assert(face_geom_desc_.size() > a && face_geom_desc_.size() > b);
 
 
+	  float bbox_diff = abs(face_geom_desc_[a].bb_x - face_geom_desc_[b].bb_x) +
+		  abs(face_geom_desc_[a].bb_y - face_geom_desc_[b].bb_y) +
+		  abs(face_geom_desc_[a].bb_z - face_geom_desc_[b].bb_z);
+
+	  bbox_diff /= face_avg_bbox_lengths_ * 10;
+	  //0 = perfect match
+	  //1 = difference is one tenth of avg bbox edge sum lengths.
+
+	  float dp = face_geom_desc_[a].o_x * face_geom_desc_[b].o_x +
+		  face_geom_desc_[a].o_y * face_geom_desc_[b].o_y +
+		  face_geom_desc_[a].o_z * face_geom_desc_[b].o_z;
+
+	  if (dp > 1) dp = 1;
+
+	  float o_diff = acos(dp) / (15.0f / 180.0f * M_PI);
+	  //0 = perfect match
+	  //1 = difference in orientation is 15 degrees
+
+	  if (bbox_diff > 1) {
+		  bbox_diff = 1;
+	  }
+	  if (o_diff > 1) {
+		  o_diff = 1;
+	  }
+
+	  return 1 - bbox_diff * 0.5f - o_diff * 0.5f;
+	}
+
+
+	void compute_geom_descriptors() {
+		for (int i = 0; i < cluster_indices_.size(); i++) {
+			GeomDescriptors g;
+
+			float x_max, x_min, y_max, y_min, z_max, z_min;
+			x_max = y_max = z_max = std::numeric_limits<float>::min();
+			x_min = y_min = z_min = std::numeric_limits<float>::max();
+
+			for (int p = 0; p < cluster_indices_[i]->indices.size(); p++) {
+				float x = cloud_->points[cluster_indices_[i]->indices[p]].x;
+				float y = cloud_->points[cluster_indices_[i]->indices[p]].y;
+				float z = cloud_->points[cluster_indices_[i]->indices[p]].z;
+				assert(isfinite(x) && isfinite(y) && isfinite(z));
+	
+				if (x > x_max) x_max = x;
+				if (y > y_max) y_max = y;
+				if (z > z_max) z_max = z;
+				if (x < x_min) x_min = x;
+				if (y < y_min) y_min = x;
+				if (z < z_min) z_min = z;
+			}
+
+			g.bb_x = x_max - x_min;
+			g.bb_y = y_max - y_min;
+			g.bb_z = z_max - z_min;
+
+			g.o_x = cluster_coeffs_[i]->values[0];
+			g.o_y = cluster_coeffs_[i]->values[1];
+			g.o_z = cluster_coeffs_[i]->values[2];
+
+			if (g.o_z < 0) {
+				g.o_x *= -1;
+				g.o_y *= -1;
+				g.o_z *= -1;
+			}
+
+			face_geom_desc_.push_back(g);
+			face_avg_bbox_lengths_ += g.bb_x + g.bb_y + g.bb_z;
+		}
+		face_avg_bbox_lengths_ /= cluster_coeffs_.size();
+
+		for (int i = 0; i < cluster_indices_.size(); i++) {
+			for (int j = i; j < cluster_indices_.size(); j++) {
+				std::cout << i << "," << j << " : " << face_similarity(i, j) << "\n";
+			}
+		}
+	}
   
   
-  
+	struct GeomDescriptors {
+		double bb_x, bb_y, bb_z;
+		double o_x, o_y, o_z;
+  };
   
   
 
@@ -332,17 +428,21 @@ class FaceGraphSegmentor {
   std::vector<pcl::ModelCoefficients::Ptr> cluster_coeffs_;
   pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_;
   std::vector<std::vector<int>> adjlist_;
-  
+  std::vector<GeomDescriptors> face_geom_desc_;
+  float face_avg_bbox_lengths_;
+
   typename pcl::search::KdTree<PointT>::Ptr kdtree_;
   
   typename pcl::PointCloud<PointT>::Ptr cloud_;
   double p_pc_dist_th_;
   double p_pc_samples_max_dist_;
   double p_pc_eps_angle_;
+  int p_pc_min_points_;
   double p_norm_est_rad_;
   double p_fc_maxrad_;
   double p_adj_sz_;
   int p_adj_k_;
+  bool p_proj_;
 };
 
 
@@ -355,13 +455,14 @@ std::string g_inputfile;
 double g_pc_dist_th = 0.05;
 double g_pc_sample_max_dist = 1;
 double g_pc_eps_angle = 0.05235987755;
+double g_pc_min_points = 50;
 double g_norm_est_rad = 0.05;
 double g_fc_maxrad = 0.05;
 double g_adj_sz = 0.05;
 int g_adj_k = 50;
 bool g_project_points = false;
 bool g_use_coolwarm_vis = false;
-
+bool g_proj = false;
 
 int
 main (int argc, char** argv)
@@ -381,12 +482,14 @@ main (int argc, char** argv)
 	try_parse_param(param_map, "pc_dist_th", g_pc_dist_th);
 	try_parse_param(param_map, "pc_sample_max_dist", g_pc_sample_max_dist);
 	try_parse_param(param_map, "pc_eps_angle", g_pc_eps_angle);
+	try_parse_param(param_map, "pc_min_points", g_pc_min_points);
 	try_parse_param(param_map, "norm_est_rad", g_norm_est_rad);
 	try_parse_param(param_map, "fc_maxrad", g_fc_maxrad);
 	try_parse_param(param_map, "adj_sz", g_adj_sz);
 	try_parse_param(param_map, "adj_k", g_adj_k);
 	try_parse_param(param_map, "project_points", g_project_points);
 	try_parse_param(param_map, "use_coolwarm_vis", g_use_coolwarm_vis);
+	try_parse_param(param_map, "proj", g_proj);
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -398,10 +501,12 @@ main (int argc, char** argv)
                                           g_pc_dist_th, 
                                           g_pc_sample_max_dist, 
                                           g_pc_eps_angle, 
+										  g_pc_min_points,
                                           g_norm_est_rad, 
                                           g_fc_maxrad, 
                                           g_adj_sz, 
-                                          g_adj_k);
+                                          g_adj_k,
+										  g_proj);
   
   seg.run();
   
