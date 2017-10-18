@@ -10,6 +10,7 @@
 #include <Eigen/Core>
 #include <pcl/common/centroid.h>
 #include <pcl/common/io.h>
+#include <pcl/point_types.h>
 #include <pcl/console/parse.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/extract_indices.h>
@@ -29,6 +30,7 @@
 struct GeomDescriptors {
   double bb_x, bb_y, bb_z;
   double o_x, o_y, o_z;
+  float bbox_edge_sum;
 };
 
 template<typename PointT>
@@ -36,10 +38,39 @@ struct FaceCluster {
   typename pcl::PointCloud<PointT>::Ptr cloud;
   GeomDescriptors geomdesc;
   PointT centroid;
+
+	float compute_similarity(FaceCluster const& n) {
+  float bbox_diff = abs(geomdesc.bb_x - n.geomdesc.bb_x) +
+	  abs(geomdesc.bb_x - n.geomdesc.bb_y) +
+	  abs(geomdesc.bb_x - n.geomdesc.bb_z);
+
+  bbox_diff /= geomdesc.bbox_edge_sum < (n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10;
+
+  //0 = perfect match
+  //1 = difference is one tenth of avg bbox edge sum lengths.
+  float dp = geomdesc.o_x * n.geomdesc.o_x +
+	  geomdesc.o_y * n.geomdesc.o_y +
+	  geomdesc.o_z * n.geomdesc.o_z;
+
+  if (dp > 1) dp = 1;
+
+  float o_diff = acos(dp) / (15.0f / 180.0f * M_PI);
+  //0 = perfect match
+  //1 = difference in orientation is 15 degrees
+  if (bbox_diff > 1) {
+	  bbox_diff = 1;
+  }
+  if (o_diff > 1) {
+	  o_diff = 1;
+  }
+
+
+  return 1 - bbox_diff * 0.5f - o_diff * 0.5f;
+}
 };
 
 struct FaceEdgeProps {
-  float centroid_relpos;
+  pcl::PointXYZ centroid_relpos;
 };
 
 
@@ -97,7 +128,43 @@ class FaceGraphSegmentor {
     return cluster_indices_;
   }
   
-    
+  void extract_graph(std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int, int>, FaceEdgeProps> edgeprops) {
+	  pcl::ExtractIndices<pcl::PointXYZ> ext;
+	  ext.setInputCloud(cloud_);
+	  ext.setNegative(false);
+
+	  for (int i = 0; i<cluster_indices_.size(); i++) {
+		  FaceCluster<PointT> fc;
+		  fc.cloud = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
+		  ext.setIndices(cluster_indices_[i]);
+		  ext.filter(*(fc.cloud));
+		  fc.geomdesc = face_geom_desc_[i];
+		  int res = computeCentroid(*(fc.cloud), fc.centroid);
+		  assert(res == fc.cloud->size());
+
+		  faces.push_back(fc);
+	  }
+
+	  adjlist = adjlist_;
+
+	  for (int i = 0; i<adjlist_.size(); i++) {
+		  for (int j = 0; j<adjlist_[i].size(); j++) {
+			  std::tuple<int, int> e = std::make_tuple(i, adjlist[i][j]);
+
+			  assert(std::get<0>(e) != std::get<1>(e));
+			  if (std::get<0>(e) > std::get<1>(e))
+				  continue;
+
+			  FaceEdgeProps prop;
+			  prop.centroid_relpos.x = faces[std::get<1>(e)].centroid.x - faces[std::get<0>(e)].centroid.x;
+			  prop.centroid_relpos.y = faces[std::get<1>(e)].centroid.y - faces[std::get<0>(e)].centroid.y;
+			  prop.centroid_relpos.z = faces[std::get<1>(e)].centroid.z - faces[std::get<0>(e)].centroid.z;
+			  edgeprops[e] = prop;
+		  }
+	  }
+  }
+
+
   
   protected:
   
@@ -392,6 +459,8 @@ class FaceGraphSegmentor {
 				g.o_z *= -1;
 			}
 
+			g.bbox_edge_sum = g.bb_x + g.bb_y + g.bb_z;
+
 			face_geom_desc_.push_back(g);
 			face_avg_bbox_lengths_ += g.bb_x + g.bb_y + g.bb_z;
 		}
@@ -407,40 +476,7 @@ class FaceGraphSegmentor {
   
 
   
-  void extract_graph(std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps> edgeprops) {
-    pcl::ExtractIndices<pcl::PointXYZ> ext;
-    ext.setInputCloud(cloud_);
-    ext.setNegative(false);
-    
-    for(int i=0; i<cluster_indices_.size(); i++) {
-      FaceCluster<PointT> fc;
-      ext.setIndices(cluster_indices_[i]);
-      ext.filter(fc.cloud);
-      fc.geomdesc = face_geom_desc_[i];
-      int res = computeCentroid(fc.cloud, fc.centroid);
-      assert(res == fc.cloud.size());
-      
-      faces.push_back(fc);
-    }
-    
-    adjlist = adjlist_;
-    
-    for(int i=0; i<adjlist_.size(); i++) {
-      for(int j=0; j<adjlist_[i].size(); j++) {
-        std::tuple<int,int> e = std::make_tuple(i, adjlist[i][j]);
-        
-        assert(std::get<0>(e) != std::get<1>(e));
-        if(std::get<0>(e) > std::get<1>(e))
-          continue;
-        
-        FaceEdgeProps prop;
-        prop.centroid_relpos = faces[std::get<1>(e)].centroid - faces[std::get<0>(e)].centroid;
-        edgeprops[e] = prop;
-      }
-    }
-  }
 
-  
 
   std::vector<pcl::PointIndices::Ptr> cluster_indices_;
   std::vector<pcl::ModelCoefficients::Ptr> cluster_coeffs_;
@@ -467,7 +503,7 @@ class FaceGraphSegmentor {
 
 
 template<typename PointT>
-int build_face_graph(FaceGraphParameters const& params, typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps> edgeprops) {
+int build_face_graph(FaceGraphParameters const& params, typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps>& edgeprops) {
   
   FaceGraphSegmentor<PointT> seg (cloud, params);
   seg.run();

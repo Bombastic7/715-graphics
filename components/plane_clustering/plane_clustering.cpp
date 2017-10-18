@@ -527,6 +527,8 @@ main (int argc, char** argv)
 	std::map<std::string, std::string> param_map;
 
 	if (parse_config_file(argv[1], param_map) == -1) {
+
+		getchar();
 		return 1;
 	}
 
@@ -550,11 +552,62 @@ main (int argc, char** argv)
   if(load_pcd_ply<pcl::PointXYZ>(g_inputfile, cloud) == -1)
     return 1;
 
-  FaceGraphSegmentor<pcl::PointXYZ> seg(cloud, params);
-  
-  seg.run();
-  
-  visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
+  std::vector<FaceCluster<pcl::PointXYZ>> faces;
+  std::vector<std::vector<int>> adjlist; 
+  std::map<std::tuple<int, int>, FaceEdgeProps> edgeprops;
+
+  build_face_graph(params, cloud, faces, adjlist, edgeprops);
+
+  for (int i = 0; i < adjlist.size(); i++) {
+	  std::cout << "Cluster " << i << ": ";
+	  for (int j = 0; j < adjlist[i].size(); j++) {
+		  std::cout << adjlist[i][j] << " ";
+	  }
+	  std::cout << "\n";
+  }
+
+
+  std::vector < std::tuple<float, int, int, int>> sim_list;
+
+  for (int i = 0; i < faces.size(); i++) {
+
+	  for (int j = i+1; j < faces.size(); j++) {	  
+		  std::vector<int>& n_min = adjlist[i].size() <= adjlist[j].size() ? adjlist[i] : adjlist[j];
+		  std::vector<int>& n_max = adjlist[i].size() > adjlist[j].size() ? adjlist[i] : adjlist[j];
+		  float avgsim = 0;
+
+		  if (n_min.empty()) {
+			  continue;
+		  }
+
+		  for (int k = 0; k < n_min.size(); k++) {
+			  float ms = 0;
+			  for (int m = 0; m < n_max.size(); m++) {
+				  float s = faces[n_min[k]].compute_similarity(faces[n_max[m]]);
+				  if (ms < s)
+					  ms = s;
+			  }
+			  avgsim += ms;
+
+		  }
+		  avgsim /= n_min.size();
+		  std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << "\n";
+
+		  sim_list.push_back(std::make_tuple(avgsim, i, j, n_max.size() - n_min.size()));
+		
+	  }
+
+
+	 
+  }
+
+  std::sort(sim_list.begin(), sim_list.end());
+
+  for (auto it = sim_list.begin(); it != sim_list.end(); ++it) {
+	  std::cout << std::get<1>(*it) << " " << std::get<2>(*it) << " : " << std::get<0>(*it) << " " << std::get<3>(*it) << "\n";
+  }
+
+  //visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
   
   return (0);
 }
