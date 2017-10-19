@@ -566,11 +566,18 @@ main (int argc, char** argv)
 	  std::cout << "\n";
   }
 
+  // Array for counting votes against each face
+  double* votes = new double(faces.size());
 
-  std::vector < std::tuple<float, int, int, int>> sim_list;
+  // fill with zeroes
+  for (int i = 0; i < faces.size(); i++) {
+	  votes[i] = 0;
+  }
+
+  std::vector < std::tuple<float, int, int, int, float>> sim_list;
 
   for (int i = 0; i < faces.size(); i++) {
-
+	  
 	  for (int j = i+1; j < faces.size(); j++) {	  
 		  std::vector<int>& n_min = adjlist[i].size() <= adjlist[j].size() ? adjlist[i] : adjlist[j];
 		  std::vector<int>& n_max = adjlist[i].size() > adjlist[j].size() ? adjlist[i] : adjlist[j];
@@ -593,7 +600,9 @@ main (int argc, char** argv)
 		  avgsim /= n_min.size();
 		  std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << "\n";
 
-		  sim_list.push_back(std::make_tuple(avgsim, i, j, n_max.size() - n_min.size()));
+		  float node_sim = faces[i].compute_similarity(faces[j]);
+
+		  sim_list.push_back(std::make_tuple(avgsim, i, j, n_max.size() - n_min.size(), node_sim));
 		
 	  }
 
@@ -604,7 +613,7 @@ main (int argc, char** argv)
   std::sort(sim_list.begin(), sim_list.end());
 
   for (auto it = sim_list.begin(); it != sim_list.end(); ++it) {
-	  std::cout << std::get<1>(*it) << " " << std::get<2>(*it) << " : " << std::get<0>(*it) << " " << std::get<3>(*it) << "\n";
+	  std::cout << std::get<1>(*it) << " " << std::get<2>(*it) << " : " << std::get<0>(*it) << " " << std::get<3>(*it) << std::get<4>(*it) << "\n";
   }
 
   //visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
