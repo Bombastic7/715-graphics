@@ -44,7 +44,7 @@ struct FaceCluster {
 	  abs(geomdesc.bb_x - n.geomdesc.bb_y) +
 	  abs(geomdesc.bb_x - n.geomdesc.bb_z);
 
-  bbox_diff /= geomdesc.bbox_edge_sum < (n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10;
+  bbox_diff /= (geomdesc.bbox_edge_sum < n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10;
 
   //0 = perfect match
   //1 = difference is one tenth of avg bbox edge sum lengths.
@@ -65,7 +65,7 @@ struct FaceCluster {
   }
 
 
-  return 1 - bbox_diff * 0.5f - o_diff * 0.5f;
+  return 1 - bbox_diff  /* *0.5f - o_diff * 0.5f*/;
 }
 };
 
