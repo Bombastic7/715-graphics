@@ -63,9 +63,20 @@ struct FaceCluster {
   if (o_diff > 1) {
 	  o_diff = 1;
   }
+  // density descriptor
+  float density_d = 0;
+  int self_density = cloud->points.size();
+  int n_density = n.cloud->points.size();
+  int density_diff = abs(self_density - n_density);
+  
 
+  int bigger_cloud_size = self_density;
+  if (bigger_cloud_size < n_density) {
+	  bigger_cloud_size = n_density;
+  }
+  density_d = (float)density_diff / (float)bigger_cloud_size;
 
-  return 1 - bbox_diff  /* *0.5f - o_diff * 0.5f*/;
+  return 1 - (bbox_diff *0.5f) - (density_d * 0.5f);
 }
 };
 

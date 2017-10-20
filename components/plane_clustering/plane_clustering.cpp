@@ -567,14 +567,23 @@ main (int argc, char** argv)
   }
 
   // Array for counting votes against each face
-  double* votes = new double(faces.size());
+  //int *votes = new int(faces.size());
+  std::vector<int> voteCount;
 
   // fill with zeroes
   for (int i = 0; i < faces.size(); i++) {
-	  votes[i] = 0;
+	  voteCount.push_back(0);
   }
 
+  double vote_thresh_nei = 0.8f;
+  double vote_thresh_node = 0.6f;
+  double final_vote_thresh = 0.5f; // 0.5 = if 50% of nodes vote against then change the node
+
   std::vector < std::tuple<float, int, int, int, float>> sim_list;
+
+  int newI, newJ;
+  // label for prints
+  std::cout << "Nodes: " << "N'hood " << "N "<< " Node-Sim \n";
 
   for (int i = 0; i < faces.size(); i++) {
 	  
@@ -598,26 +607,49 @@ main (int argc, char** argv)
 
 		  }
 		  avgsim /= n_min.size();
-		  std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << "\n";
+		  
 
 		  float node_sim = faces[i].compute_similarity(faces[j]);
+		  std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << " " << node_sim << "\n";
+
+
+		  // Vote if nodes are not similar but the neighbourhood is similar.
+		  if (node_sim < vote_thresh_node && avgsim > vote_thresh_nei) {
+			  //votes[i]++;
+			  //votes[j]++;
+			  newI = voteCount.at(i);
+			  newJ = voteCount.at(j);
+			  voteCount.at(i) += 1;
+			  voteCount.at(j) += 1;
+		  }
 
 		  sim_list.push_back(std::make_tuple(avgsim, i, j, n_max.size() - n_min.size(), node_sim));
 		
-	  }
-
-
-	 
+	  } 
   }
-
-  std::sort(sim_list.begin(), sim_list.end());
-
-  for (auto it = sim_list.begin(); it != sim_list.end(); ++it) {
-	  std::cout << std::get<1>(*it) << " " << std::get<2>(*it) << " : " << std::get<0>(*it) << " " << std::get<3>(*it) << std::get<4>(*it) << "\n";
-  }
-
-  //visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
   
+  // Printing the votes per node
+ // for (auto i = voteCount.begin(); i != voteCount.end(); ++i){
+	//std::cout << *i << " : " << voteCount.at[*i] << "\n";
+ // }
+	  
+  for (int i = 0; i < voteCount.size(); i++) {
+	  std::cout << i << " : " << voteCount.at(i)<< "\n";
+  }
+
+	//delete [] votes;
+	//votes = nullptr;
+
+  //std::sort(sim_list.begin(), sim_list.end());
+
+  //for (auto it = sim_list.begin(); it != sim_list.end(); ++it) {
+	 // std::cout << std::get<1>(*it) << " " << std::get<2>(*it) << " : " << std::get<0>(*it) << " " << std::get<3>(*it) << " " << std::get<4>(*it) << "\n";
+  //}
+  std::cout << "End of program\n";
+  //visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
+
+  
+
   return (0);
 }
 
