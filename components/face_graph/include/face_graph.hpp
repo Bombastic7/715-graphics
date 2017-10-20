@@ -44,7 +44,7 @@ struct FaceCluster {
 	  abs(geomdesc.bb_x - n.geomdesc.bb_y) +
 	  abs(geomdesc.bb_x - n.geomdesc.bb_z);
 
-  bbox_diff /= (geomdesc.bbox_edge_sum < n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10;
+  bbox_diff /= abs((geomdesc.bbox_edge_sum < n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10);
 
   //0 = perfect match
   //1 = difference is one tenth of avg bbox edge sum lengths.
@@ -60,6 +60,9 @@ struct FaceCluster {
   if (bbox_diff > 1) {
 	  bbox_diff = 1;
   }
+  //if (bbox_diff < 0) {
+	 // bbox_diff = 0;
+  //}
   if (o_diff > 1) {
 	  o_diff = 1;
   }
@@ -76,7 +79,11 @@ struct FaceCluster {
   }
   density_d = (float)density_diff / (float)bigger_cloud_size;
 
-  return 1 - (bbox_diff *0.5f) - (density_d * 0.5f);
+  //if(density_d > 1) {
+//std::cout << "density_d: " << density_d << " bbox_diff: " << bbox_diff << " big size: " << bigger_cloud_size << "\n";
+  //}
+
+  return 1 - (bbox_diff *0.5f) -( density_d * 0.5f);
 }
 };
 
