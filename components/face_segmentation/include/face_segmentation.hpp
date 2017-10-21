@@ -2,6 +2,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -37,12 +38,12 @@ template<typename PointT>
 struct FaceCluster {
   typename pcl::PointCloud<PointT>::Ptr cloud;
   GeomDescriptors geomdesc;
-  PointT centroid;
+  PointT centroid, bbox_centre;
 
 	float compute_similarity(FaceCluster const& n) {
   float bbox_diff = abs(geomdesc.bb_x - n.geomdesc.bb_x) +
-	  abs(geomdesc.bb_x - n.geomdesc.bb_y) +
-	  abs(geomdesc.bb_x - n.geomdesc.bb_z);
+	  abs(geomdesc.bb_y - n.geomdesc.bb_y) +
+	  abs(geomdesc.bb_z - n.geomdesc.bb_z);
 
   bbox_diff /= abs((geomdesc.bbox_edge_sum < n.geomdesc.bbox_edge_sum ? geomdesc.bbox_edge_sum : n.geomdesc.bbox_edge_sum) * 10);
 
@@ -92,7 +93,7 @@ struct FaceEdgeProps {
 };
 
 
-struct FaceGraphParameters {
+struct FaceSegmentorParameters {
   double norm_est_k;
   double pc_dist_th;
   double pc_samples_max_dist; 
@@ -105,14 +106,14 @@ struct FaceGraphParameters {
 };
 
 template<typename PointT>
-class FaceGraphSegmentor {
+class FaceSegmentor {
   public:
   
 
   
   
-  FaceGraphSegmentor( typename pcl::PointCloud<PointT>::Ptr cloud, 
-                      FaceGraphParameters params) :
+  FaceSegmentor( typename pcl::PointCloud<PointT>::Ptr cloud, 
+                 FaceSegmentorParameters const& params) :
     cloud_normals_(new pcl::PointCloud<pcl::Normal>),
     kdtree_(new typename pcl::search::KdTree<PointT>),
     cloud_(cloud),
@@ -124,7 +125,7 @@ class FaceGraphSegmentor {
     p_fc_maxrad_(params.fc_maxrad),
     p_adj_sz_(params.adj_sz),
     p_adj_k_(params.adj_k),
-	p_proj_(params.proj)
+    p_proj_(params.proj)
   {
   }
   
@@ -136,17 +137,39 @@ class FaceGraphSegmentor {
     segment_faces();
     compute_adjacency();
 
-	if (p_proj_)
-		project_points();
-	compute_geom_descriptors();
-	return 0;
+    if (p_proj_)
+      project_points();
+    
+    //compute_geom_descriptors();
+    return 0;
   }
   
-  std::vector<pcl::PointIndices::Ptr> const& get_clusters() {
+  std::vector<pcl::PointIndices::Ptr> const& get_clusters_indices() {
     return cluster_indices_;
   }
   
-  void extract_graph(std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int, int>, FaceEdgeProps> edgeprops) {
+  std::vector<pcl::ModelCoefficients::Ptr> const& get_cluster_coeffs() {
+    return cluster_coeffs_;
+  }
+  
+  std::vector<std::vector<int>> const& get_adjlist() {
+    return adjlist_;
+  }
+  
+  void extract_cluster(int c, typename pcl::PointCloud<PointT>::Ptr pc) {
+    if(c >= cluster_indices_.size())
+      throw std::runtime_error("Invalid cluster id");
+      
+    pcl::ExtractIndices<pcl::PointXYZ> ext;
+	  ext.setInputCloud(cloud_);
+	  ext.setNegative(false);
+    ext.setIndices(cluster_indices_[c]);
+		ext.filter(*pc);
+  }
+    
+    
+  /*
+  void extract_graph(std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist) {
 	  pcl::ExtractIndices<pcl::PointXYZ> ext;
 	  ext.setInputCloud(cloud_);
 	  ext.setNegative(false);
@@ -182,7 +205,7 @@ class FaceGraphSegmentor {
 	  }
   }
 
-
+  */
   
   protected:
   
@@ -407,6 +430,8 @@ class FaceGraphSegmentor {
     }
   }
   
+  
+  /*
   float face_similarity(int a, int b) {
 	  assert(a >= 0 && b >= 0);
 	  assert(face_geom_desc_.size() > a && face_geom_desc_.size() > b);
@@ -490,7 +515,7 @@ class FaceGraphSegmentor {
 		//	}
 		//}
 	}
-  
+  */
   
 
   
@@ -500,8 +525,8 @@ class FaceGraphSegmentor {
   std::vector<pcl::ModelCoefficients::Ptr> cluster_coeffs_;
   pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_;
   std::vector<std::vector<int>> adjlist_;
-  std::vector<GeomDescriptors> face_geom_desc_;
-  float face_avg_bbox_lengths_;
+  //std::vector<GeomDescriptors> face_geom_desc_;
+  //float face_avg_bbox_lengths_;
 
   typename pcl::search::KdTree<PointT>::Ptr kdtree_;
   
@@ -520,11 +545,11 @@ class FaceGraphSegmentor {
 
 
 
-template<typename PointT>
-int build_face_graph(FaceGraphParameters const& params, typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps>& edgeprops) {
+//~ template<typename PointT>
+//~ int build_face_graph(FaceGraphParameters const& params, typename pcl::PointCloud<PointT>::Ptr cloud, std::vector<FaceCluster<PointT>>& faces, std::vector<std::vector<int>>& adjlist, std::map<std::tuple<int,int>, FaceEdgeProps>& edgeprops) {
   
-  FaceGraphSegmentor<PointT> seg (cloud, params);
-  seg.run();
-  seg.extract_graph(faces, adjlist, edgeprops);
-  return 0;
-}
+  //~ FaceGraphSegmentor<PointT> seg (cloud, params);
+  //~ seg.run();
+  //~ seg.extract_graph(faces, adjlist, edgeprops);
+  //~ return 0;
+//~ }
