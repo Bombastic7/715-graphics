@@ -14,6 +14,11 @@ template<typename NodeProps, typename EdgeProps>
 class UndirectedMapGraph {
   public:
   
+  UndirectedMapGraph() :
+    next_node_id_(0)
+  {}
+  
+  
   NodeProps& get_node_props(int i) {
     return nodeprops_.at(i);
   }
@@ -63,7 +68,7 @@ class UndirectedMapGraph {
     if(edgeprops_.count(e) != 0) {
       if(ignore_existing)
         return;
-      throw std::runtime_error(std::string("Edge (") + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<0>(e)) + ") already exists.");
+      throw std::runtime_error(std::string("Edge (") + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<1>(e)) + ") already exists.");
     }
     
     if(nodeprops_.count(a) == 0)
@@ -83,7 +88,7 @@ class UndirectedMapGraph {
   void remove_edge(int a, int b) {
     auto e = std::make_tuple( std::min(a,b), std::max(a,b) );
     if(edgeprops_.count(e) == 0)
-      throw std::runtime_error(std::string("Edge (") + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<0>(e)) + ") does not exist.");
+      throw std::runtime_error(std::string("Edge (") + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<1>(e)) + ") does not exist.");
     
     edgeprops_.remove(e);
     adjlist_.at(std::get<0>(e)).erase(std::get<1>(e));

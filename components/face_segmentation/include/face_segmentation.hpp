@@ -336,12 +336,14 @@ class FaceSegmentor {
     std::map<std::tuple<int,int>, int> pair_counts;
     
     
+    //For each region...
     for(auto regit=region_counts.begin(); regit!=region_counts.end(); ++regit) {
       
       int x = std::get<0>(regit->first);
       int y = std::get<1>(regit->first);
       int z = std::get<2>(regit->first);
       
+      //Count the points in the 27 region area: super_region_counts[cluster] -> n
       std::map<int,int> super_region_counts;
       
       for(int xd=-1; xd <= 1; xd += 1) {
@@ -359,13 +361,19 @@ class FaceSegmentor {
         }
       }
       
+      //it is an iterator for the map of counts for region <x,y,z>
       for(auto it=regit->second.begin(); it!=regit->second.end(); ++it) {
+        //it2 is an iterator for the map of counts for the super region
         for(auto it2=super_region_counts.begin(); it2!=super_region_counts.end(); ++it2) {
           
+          //A cluster can't be adjacent to itself.
           if(it->first == it2->first)
             continue;
           
+          //t = (some cluster in region, some other cluster in super region)
           std::tuple<int,int> t = std::make_tuple(it->first, it2->first);
+          
+          //n is min number of points from either cluster.
           int n = it->second < it2->second ? it->second : it2->second;
           
           pair_counts[t] += n;
