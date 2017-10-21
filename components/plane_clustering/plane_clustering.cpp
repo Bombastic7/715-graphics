@@ -20,7 +20,7 @@
 //The number of pairs is equal to the size of the smaller neighbourhood.
 //Each pair has one neighbour of a and one of b. A cluster may only appear once for each neighbourhood.
 float neighbourhood_similarity(int a, int b, std::vector<FaceCluster<pcl::PointXYZ>>& faces, std::vector<std::vector<int>>& adjlist) {
-  std::vector<int>& n_min = adjlist[i].size() <= adjlist[j].size() ? adjlist[i] : adjlist[j];
+  /*std::vector<int>& n_min = adjlist[i].size() <= adjlist[j].size() ? adjlist[i] : adjlist[j];
   std::vector<int>& n_max = adjlist[i].size() > adjlist[j].size() ? adjlist[i] : adjlist[j];
   float avgsim = 0;
 
@@ -71,7 +71,8 @@ float neighbourhood_similarity(int a, int b, std::vector<FaceCluster<pcl::PointX
     }
     avgsim /= corr_sim.size();
     
-    return avgsim;
+    return avgsim;*/
+	return 0;
 }
 
 
@@ -230,9 +231,10 @@ main (int argc, char** argv)
 	  voteCount.push_back(0);
   }
 
-  double vote_thresh_nei = 0.8f;
-  double vote_thresh_node = 0.7f;
-  double final_vote_thresh = 0.5f; // 0.5 = if 50% of nodes vote against then change the node
+  // tuning factors for selecting node for replacement
+  double vote_thresh_nei = 0.85f; // was .8
+  double vote_thresh_node = 0.85f; // was 0.7
+  double final_vote_thresh = 0.3f; // 0.5 = if 50% of nodes vote against then change the node
 
   std::vector < std::tuple<float, int, int, int, float>> sim_list;
   std::vector < std::tuple<int, double>> neighbour_sim_vote;
@@ -243,7 +245,7 @@ main (int argc, char** argv)
   }
 
   // label for prints
-  //std::cout << "Nodes: " << "N'hood " << "N "<< " Node-Sim \n";
+  std::cout << "Nodes: " << "N'hood " << "N "<< " Node-Sim \n";
 
   for (int i = 0; i < faces.size(); i++) {
 	  
@@ -269,7 +271,7 @@ main (int argc, char** argv)
 		  avgsim /= n_min.size();
 
 		  float node_sim = faces[i].compute_similarity(faces[j]);
-		  //std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << " " << node_sim << "\n";
+		  std::cout << i << " " << j << ": " << avgsim << " " << n_max.size() - n_min.size() << " " << node_sim << "\n";
 
 
 		  // Vote if nodes are not similar but the neighbourhood is similar.
@@ -279,17 +281,18 @@ main (int argc, char** argv)
 			  voteCount.at(i) += 1;
 			  voteCount.at(j) += 1;
 
-			  // neignbourhood vote
-			  double oldSim1 = std::get<1>(neighbour_sim_vote[i]);
-			  double oldSim2 = std::get<1>(neighbour_sim_vote[j]);
-			  if (oldSim1 < avgsim) {
-				  std::get<1>(neighbour_sim_vote[i]) = avgsim; // assign new best neighbourhood
-				  std::get<0>(neighbour_sim_vote[i]) = j; // assign new best neighbour
-			  }
-			  if (oldSim2 < avgsim) {
-				  std::get<1>(neighbour_sim_vote[j]) = avgsim; // assign new best neighbourhood
-				  std::get<0>(neighbour_sim_vote[j]) = i; // assign new best neighbour
-			  }
+			  
+		  }
+		  // neignbourhood vote
+		  double oldSim1 = std::get<1>(neighbour_sim_vote[i]);
+		  double oldSim2 = std::get<1>(neighbour_sim_vote[j]);
+		  if (oldSim1 < avgsim) {
+			  std::get<1>(neighbour_sim_vote[i]) = avgsim; // assign new best neighbourhood
+			  std::get<0>(neighbour_sim_vote[i]) = j; // assign new best neighbour
+		  }
+		  if (oldSim2 < avgsim) {
+			  std::get<1>(neighbour_sim_vote[j]) = avgsim; // assign new best neighbourhood
+			  std::get<0>(neighbour_sim_vote[j]) = i; // assign new best neighbour
 		  }
 
 		  sim_list.push_back(std::make_tuple(avgsim, i, j, n_max.size() - n_min.size(), node_sim));
@@ -301,6 +304,11 @@ main (int argc, char** argv)
  // for (auto i = voteCount.begin(); i != voteCount.end(); ++i){
 	//std::cout << *i << " : " << voteCount.at[*i] << "\n";
  // }
+
+  for (int i = 0; i < voteCount.size(); i++) {
+	  std::cout << i << " : " << voteCount.at(i) << "\n";
+  }
+
 	  
   for (int i = 0; i < voteCount.size(); i++) {
 	  if (voteCount.at(i) >= (voteCount.size() * final_vote_thresh)) {
@@ -309,9 +317,7 @@ main (int argc, char** argv)
 	  //std::cout << i << " : " << voteCount.at(i)<< "\n";
   }
 
-  //for (int i = 0; i < voteCount.size(); i++) {
-	 // std::cout << i << " : " << std::get<0>(neighbour_sim_vote[i]) << " " << std::get<1>(neighbour_sim_vote[i]) << "\n";
-  //}
+
 
 	//delete [] votes;
 	//votes = nullptr;
