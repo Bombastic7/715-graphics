@@ -250,7 +250,7 @@ float compute_neighbourhood_similarity(int ai, int bi, FaceGraph& graph) {
 
 
 
-FaceGraph do_bad_node_replacement( FaceGraph& graph,
+void do_bad_node_replacement( FaceGraph& graph,
                               float p_gr_nsim,
                               float p_nsim_co,
                               float p_gr_best_face_sim) {
@@ -315,33 +315,51 @@ FaceGraph do_bad_node_replacement( FaceGraph& graph,
     replacements.push_back(std::make_tuple(*c, best_replacement_idx));
   }
   
-  FaceGraph newgraph = graph;
+  //FaceGraph newgraph = graph;
   
   for(int i=0; i<replacements.size(); i++) {
+    std::cout << "Replaced cluster " << std::get<0>(replacements[i]) << " with " << std::get<1>(replacements[i]) << "\n";
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr pc = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointXYZ src = graph.get_node_props(std::get<1>(replacements[i])).bbox_centre;
     pcl::PointXYZ dst = graph.get_node_props(std::get<0>(replacements[i])).bbox_centre;
     
-    Eigen::Affine3f t;
+    Eigen::Affine3f t = Eigen::Affine3f::Identity();
     t.translation() << dst.x - src.x, dst.y - src.y, dst.z - src.z;
     
+    std::cout << t.translation() << "\n";
+    
     pcl::transformPointCloud<pcl::PointXYZ>(*(graph.get_node_props(std::get<1>(replacements[i])).cloud), *pc, t);
-    newgraph.get_node_props(std::get<0>(replacements[i])).cloud = pc;
+    graph.get_node_props(std::get<0>(replacements[i])).cloud = pc;
   }
   
-  return newgraph;
 }
 
 
 
 //Reconstruct model from graph
 void reconstruct_graph( pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, 
+                        std::vector<pcl::PointIndices::Ptr>& cluster_indices,
                         FaceGraph& graph) {
   
   cloud->clear();
+  cluster_indices.clear();
+  
   for(auto it=graph.nodes().begin(); it != graph.nodes().end(); ++it) {
+    pcl::PointIndices::Ptr indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+    
+    for(int j=cloud->size(); j < cloud->size() + graph.get_node_props(*it).cloud->size(); j++) {
+      indices->indices.push_back(j);
+    }
+    
+    cluster_indices.push_back(indices);
     *cloud += *(graph.get_node_props(*it).cloud);
+    
   }
+  
+  cloud->width = cloud->points.size();
+  cloud->height = 1;
+  cloud->is_dense = true;
 }
 
 
@@ -411,22 +429,24 @@ main (int argc, char** argv)
   }
 
 
-  FaceGraph repairedGraph = do_bad_node_replacement(graph, 0.8, 0.7, 0.8);
+  //FaceGraph repairedGraph = do_bad_node_replacement(graph, 0.8, 0.7, 0.8);
+  do_bad_node_replacement(graph, 0.8, 0.7, 0.8);
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr repairedcloud(new pcl::PointCloud<pcl::PointXYZ>);
+  std::vector<pcl::PointIndices::Ptr> cluster_indices;
   
-  reconstruct_graph(repairedcloud, repairedGraph);
+  reconstruct_graph(repairedcloud, cluster_indices, graph);
   
-  //visualize_clusters<pcl::PointXYZ>(cloud, seg.get_clusters(), g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
+  visualize_clusters<pcl::PointXYZ>(repairedcloud, cluster_indices, g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
 
-  pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
-  viewer.addPointCloud<pcl::PointXYZ>(repairedcloud);
-  //viewer.addPointCloud<pcl::PointXYZ>(repairedcloud, "cloud2", 1);
+  //~ pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
+  //~ viewer.addPointCloud<pcl::PointXYZ>(repairedcloud);
+  //~ //viewer.addPointCloud<pcl::PointXYZ>(repairedcloud, "cloud2", 1);
   
-  while (!viewer.wasStopped()) {
-    viewer.spinOnce (100);
-    boost::this_thread::sleep (boost::posix_time::microseconds (100000));
-   }
+  //~ while (!viewer.wasStopped()) {
+    //~ viewer.spinOnce (100);
+    //~ boost::this_thread::sleep (boost::posix_time::microseconds (100000));
+   //~ }
    
 
 
