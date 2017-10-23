@@ -1,8 +1,6 @@
 #include "parse.h"
 #include <fstream>
 
-#pragma once
-
 int parse_config_file(std::string const& fn, std::map<std::string, std::string>& kv_map) {
 	kv_map.clear();
 
@@ -57,7 +55,7 @@ void try_parse_param(std::map<std::string, std::string> const& kv_map, std::stri
 void try_parse_param(std::map<std::string, std::string> const& kv_map, std::string const& k, bool& v) {
 	if (kv_map.count(k) == 0)
 		return;
-	v = 0 != strtod(kv_map.at(k).c_str(), NULL);
+	v = 0 != strtol(kv_map.at(k).c_str(), NULL, 10);
 }
 
 void try_parse_param(std::map<std::string, std::string> const& kv_map, std::string const& k, std::string& v) {

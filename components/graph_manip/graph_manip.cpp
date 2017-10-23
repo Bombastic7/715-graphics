@@ -48,6 +48,9 @@ typedef UndirectedMapGraph<FaceClusterProps, int> FaceGraph;
 
 
 
+
+
+
 FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegmentorParameters const& params) {
   
   FaceGraph graph;
@@ -72,9 +75,9 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
       bb_x_min = std::min(bb_x_min, fc.cloud->points[p].x);
       bb_y_min = std::min(bb_y_min, fc.cloud->points[p].y);
       bb_z_min = std::min(bb_z_min, fc.cloud->points[p].z);
-      bb_x_max = std::min(bb_x_max, fc.cloud->points[p].x);
-      bb_y_max = std::min(bb_y_max, fc.cloud->points[p].y);
-      bb_z_max = std::min(bb_z_max, fc.cloud->points[p].z);
+      bb_x_max = std::max(bb_x_max, fc.cloud->points[p].x);
+      bb_y_max = std::max(bb_y_max, fc.cloud->points[p].y);
+      bb_z_max = std::max(bb_z_max, fc.cloud->points[p].z);
     }
     
     fc.gd.bb_x = bb_x_max - bb_x_min;
@@ -109,7 +112,7 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
   
   std::vector<std::vector<int>> const& adjlist = seg.get_adjlist();
   
-  //Check for no self loops
+  //Check for no self loops. This should never happen.
   for(int i=0; i<adjlist.size(); i++) {
     for(int j=0; j<adjlist[i].size(); j++) {
       if(adjlist[i][j] == i) {
@@ -146,10 +149,16 @@ float compute_face_similarity(int ai, int bi, FaceGraph& graph) {
 	  //0 = perfect match
 	  //1 = difference is one tenth of avg bbox edge sum lengths.
 
-	  float dp = a.gd.o_x * b.gd.o_x +
+	  float dp1 = a.gd.o_x * b.gd.o_x +
 		  a.gd.o_y * b.gd.o_y +
 		  a.gd.o_z * b.gd.o_z;
 
+	  float dp2 = (-a.gd.o_x) * b.gd.o_x +
+		  (-a.gd.o_y) * b.gd.o_y +
+		  (-a.gd.o_z) * b.gd.o_z;
+    
+    float dp = std::min(std::abs(dp1), std::abs(dp2));
+    
 	  if (dp > 1) dp = 1;
 
 	  float o_diff = acos(dp) / (15.0f / 180.0f * M_PI);
@@ -178,161 +187,164 @@ float compute_face_similarity(int ai, int bi, FaceGraph& graph) {
 
 
 
+bool set_next_perm(std::vector<int>& p, int mx) {
+  for(int i=p.size()-1; i>=0; i--) {
+    if(p[i] == mx) {
+      p[i] = 0;
+      if(i == 0)
+        return true;
+    } else {
+      p[i]++;
+      break;
+    }
+  }
+  return false;
+}
+
+
 //Find most similar pairs of neighbours for clusters a and b and return their average similarity.
 //The number of pairs is equal to the size of the smaller neighbourhood.
 //Each pair has one neighbour of a and one of b. A cluster may only appear once for each neighbourhood.
 float compute_neighbourhood_similarity(int ai, int bi, FaceGraph& graph) {
-  std::set<int> const& n_min = graph.adjacent(ai).size() <= graph.adjacent(bi).size() ? graph.adjacent(ai) : graph.adjacent(bi);
-  std::set<int> const& n_max = graph.adjacent(ai).size() > graph.adjacent(bi).size() ? graph.adjacent(ai) : graph.adjacent(bi);
+  std::set<int> const& n_min_set = graph.adjacent(ai).size() <= graph.adjacent(bi).size() ? graph.adjacent(ai) : graph.adjacent(bi);
+  std::set<int> const& n_max_set = graph.adjacent(ai).size() > graph.adjacent(bi).size() ? graph.adjacent(ai) : graph.adjacent(bi);
+
+  std::vector<int> n_min(n_min_set.begin(), n_min_set.end());
+  std::vector<int> n_max(n_max_set.begin(), n_max_set.end());
 
   if (n_min.empty() || n_max.size() - n_min.size() > 2) {
     return 0;
   }
-
-  std::vector<std::tuple<float, int, int>> corr_sim;
   
-  for (auto it1 = n_min.begin(); it1 != n_min.end(); ++it1) {
-    for(auto it2 = n_max.begin(); it2 != n_max.end(); ++it2) {
-      float s = compute_face_similarity(*it1, *it2, graph);
-      corr_sim.push_back(std::make_tuple(s, *it1, *it2));
+  float max_sim = 0;
+  
+  std::vector<int> max_try_idx(n_min.size());
+  //std::vector<int> best_idx;
+  
+  do {
+    float s = 0;
+    for(int i=0; i<n_min.size(); i++) {
+      s += compute_face_similarity(n_min[i], n_max[max_try_idx[i]], graph);
     }
-  }
-  
-  std::sort(corr_sim.begin(), corr_sim.end(), std::greater<std::tuple<float, int, int>>());
-  
-  std::vector<bool> seen_face_min(graph.nodes().size());
-  std::vector<bool> seen_face_max(graph.nodes().size());
-  
-  for(int i=0; i<corr_sim.size(); i++) {
-    int minface = std::get<1>(corr_sim[i]);
-    int maxface = std::get<2>(corr_sim[i]);
-    bool rem = false;
     
-    if(seen_face_min[minface])
-      rem = true;
-    else
-      seen_face_min[minface] = true;
-    
-    if(seen_face_max[maxface])
-      rem = true;
-    else
-      seen_face_max[maxface] = true;
-    
-      if(rem)
-        corr_sim[i] = std::make_tuple(0.0f, 0, 0);
-  }
-  
-  std::remove(corr_sim.begin(), corr_sim.end(), std::make_tuple(0, 0, 0));
-  
-  //~ for(int i=0; i<corr_sim.size(); i++) {
-    //~ std::cout << i << ": " << std::get<0>(corr_sim[i]) << " " << std::get<1>(corr_sim[i]) << " " << std::get<2>(corr_sim[i]) << "\n";
-  //~ }
-  
-  
-    
-  //~ if(! (corr_sim.size() == n_min.size()) ) {
-    //~ throw std::runtime_error(std::string("corr_sim.size() == ") + std::to_string(corr_sim.size()) + " n_min.size() == " + std::to_string(n_min.size()));
-  //~ }
-    
-  float avgsim = 0;
-  int n = 0;
-  for(int i=0; i<corr_sim.size(); i++) {
-    if(std::get<0>(corr_sim[i]) != 0) {
-      avgsim += std::get<0>(corr_sim[i]);
-      n++;
+    if(max_sim < s) {
+      max_sim = s;
+      //best_idx = max_try_idx;
     }
-  }
-  avgsim /= n;
     
-  return avgsim;
+  } while(!set_next_perm(max_try_idx, n_max.size()-1));
+  
+  return max_sim / n_min.size();
 }
 
 
 
-
-void do_bad_node_replacement( FaceGraph& graph,
-                              float p_gr_nsim,
-                              float p_nsim_co,
-                              float p_gr_best_face_sim) {
+/*
+TRY_REPLACE_NODE(t)
+  Ns = set of other nodes with similar neighbourhoods (similar mean face similarity >= p_gr_sim_th_nghbr)
   
-
-  std::vector<std::tuple<int,int>> replacements; //Replace the first cluster with the second.
+  if Ns.size() < p_gr_min_num_sim_nghbrs:
+    return
   
+  BN = subset of Ns, where each node is dissimilar to some other node in Ns. (disimilar means face similarity < p_gr_inter_nghbr_sim_th
+  
+  if BN.size() / Ns.size() > p_gr_inter_nghbr_bad_tol:
+    return
+  
+  ReplacementNode = the node r in Ns, that's not in BN, that has the best neighbourhood similarity to t.
+  
+  t.points = r.points
+*/
+
+
+//This function essentially runs the above algorithm on an arbitrary node and returns true, else returns false if no nodes meets all the criteria.
+bool do_bad_node_replacement( FaceGraph& graph,
+                              float p_gr_sim_th_nghbr,          //Minimum neighbourhood similarity needed between two nodes to be considered as having similar neighbourhoods. 
+                              float p_gr_min_num_sim_nghbrs,    //Minimum number of similar neighbourhoods found needed to proceeded to replacement.
+                              float p_gr_inter_nghbr_sim_th,    //Minimum similarity between any two nodes in group of similar neighbourhoods needed to consider those nodes as part of a coherent group.
+                              float p_gr_inter_nghbr_bad_tol) { //Proportion of noncoherent neighbourhoods allowed.
+  
+  
+  std::vector<int> nodes(graph.nodes().begin(), graph.nodes().end());
+
+  int target_node = -1;
+  int replacement_node = 0;
+  float replacement_sim = 0;
    
-  for(auto c = graph.nodes().begin(); c != graph.nodes().end(); ++c) {
+   
+  for(int i=0; i<nodes.size(); i++) {
+    std::vector<std::tuple<float, int>> nodes_with_similar_neighbours;
     
-    std::vector<std::tuple<int, float, float>> sim_face_neighbourhood_list;
-    
-    for(auto d = graph.nodes().begin(); d != graph.nodes().end(); ++d) {
-      if(*c == *d)
+    for(int j=0; j<nodes.size(); j++) {
+      if(i == j)
         continue;
       
-      float neighbourhood_sim = compute_neighbourhood_similarity(*c, *d, graph);
+      float s = compute_neighbourhood_similarity(nodes[i], nodes[j], graph);
       
-      if(neighbourhood_sim >= p_gr_nsim)
-        sim_face_neighbourhood_list.push_back(std::make_tuple(*d, compute_face_similarity(*c, *d, graph), neighbourhood_sim));
+      if(s > p_gr_sim_th_nghbr)
+        nodes_with_similar_neighbours.push_back(std::make_tuple(s, nodes[j]));
     }
     
-
-    bool sim_neighbourhoods_cores_coherent = true;
+   if(nodes_with_similar_neighbours.size() < p_gr_min_num_sim_nghbrs)
+    continue;
     
-    for(int i=0; i<sim_face_neighbourhood_list.size(); i++) {
-      for(int j=i+1; j<sim_face_neighbourhood_list.size(); j++) {
-        if(compute_face_similarity(std::get<0>(sim_face_neighbourhood_list[i]), std::get<0>(sim_face_neighbourhood_list[j]), graph) < p_nsim_co) {
-          sim_neighbourhoods_cores_coherent = false;
-          break;
-        }
-      }
-    }
-    
-    if(!sim_neighbourhoods_cores_coherent)
-      continue;
-    
-    float target_best_core_sim = 0;
-    
-    for(int i=0; i<sim_face_neighbourhood_list.size(); i++) {
-      if(std::get<1>(sim_face_neighbourhood_list[i]) > target_best_core_sim) {
-        target_best_core_sim = std::get<1>(sim_face_neighbourhood_list[i]);
-      }
-    }
-    
-    if(target_best_core_sim >= p_gr_best_face_sim)
-      continue;
-    
-    float best_replacement_sim = 0;
-    int best_replacement_idx = -1;
-    
-    for(int i=0; i<sim_face_neighbourhood_list.size(); i++) {
-      if(std::get<2>(sim_face_neighbourhood_list[i]) > best_replacement_sim) {
-        best_replacement_sim = std::get<2>(sim_face_neighbourhood_list[i]);
-        best_replacement_idx = std::get<0>(sim_face_neighbourhood_list[i]);
-      }
-    }
-    
-    if(best_replacement_idx == -1)
-      continue;
-    
-    replacements.push_back(std::make_tuple(*c, best_replacement_idx));
+   std::sort(nodes_with_similar_neighbours.begin(), nodes_with_similar_neighbours.end(), std::greater<std::tuple<float,int>>());
+  
+   std::set<int> bad_neighbours;
+   for(int j=0; j<nodes_with_similar_neighbours.size(); j++) {
+     for(int k=j+1; k<nodes_with_similar_neighbours.size(); k++) {
+       if(compute_face_similarity(
+            std::get<1>(nodes_with_similar_neighbours[j]), 
+            std::get<1>(nodes_with_similar_neighbours[k]), 
+            graph) < p_gr_inter_nghbr_sim_th) {
+            
+         bad_neighbours.insert(std::get<1>(nodes_with_similar_neighbours[j]));
+         bad_neighbours.insert(std::get<1>(nodes_with_similar_neighbours[k]));
+       }
+     }
+   }
+   
+   if(((float)bad_neighbours.size()) / nodes_with_similar_neighbours.size() > p_gr_inter_nghbr_bad_tol)
+     continue;
+   
+   
+   
+   for(int j=0; j<nodes_with_similar_neighbours.size(); j++) {
+     if(std::get<0>(nodes_with_similar_neighbours[j]) > replacement_sim && bad_neighbours.count(std::get<1>(nodes_with_similar_neighbours[j])) == 0) {
+       replacement_node = std::get<1>(nodes_with_similar_neighbours[j]);
+       replacement_sim = std::get<0>(nodes_with_similar_neighbours[j]);
+     }
+     
+   }
+   
+   target_node = nodes[i];
+   break;
   }
   
-  //FaceGraph newgraph = graph;
+  if(target_node == -1)
+    return false;
   
-  for(int i=0; i<replacements.size(); i++) {
-    std::cout << "Replaced cluster " << std::get<0>(replacements[i]) << " with " << std::get<1>(replacements[i]) << "\n";
-    
-    pcl::PointCloud<pcl::PointXYZ>::Ptr pc = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointXYZ src = graph.get_node_props(std::get<1>(replacements[i])).bbox_centre;
-    pcl::PointXYZ dst = graph.get_node_props(std::get<0>(replacements[i])).bbox_centre;
-    
-    Eigen::Affine3f t = Eigen::Affine3f::Identity();
-    t.translation() << dst.x - src.x, dst.y - src.y, dst.z - src.z;
-    
-    std::cout << t.translation() << "\n";
-    
-    pcl::transformPointCloud<pcl::PointXYZ>(*(graph.get_node_props(std::get<1>(replacements[i])).cloud), *pc, t);
-    graph.get_node_props(std::get<0>(replacements[i])).cloud = pc;
-  }
   
+  std::cout << "Replace node " << target_node << " with node " << replacement_node << "\n";
+   
+  pcl::PointXYZ src_bbox_centre, dst_bbox_centre, old_centroid;
+  src_bbox_centre = graph.get_node_props(replacement_node).bbox_centre;
+  dst_bbox_centre = graph.get_node_props(target_node).bbox_centre;
+  old_centroid = graph.get_node_props(target_node).centroid;
+  
+  graph.get_node_props(target_node) = graph.get_node_props(replacement_node);
+  graph.get_node_props(target_node).cloud = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+  
+  Eigen::Affine3f transf = Eigen::Affine3f::Identity();
+  
+  transf.translation() << dst_bbox_centre.x - src_bbox_centre.x, dst_bbox_centre.y - src_bbox_centre.y, dst_bbox_centre.z - src_bbox_centre.z; 
+  
+  pcl::transformPointCloud(*(graph.get_node_props(replacement_node).cloud), *(graph.get_node_props(target_node).cloud), transf);
+  
+  graph.get_node_props(target_node).bbox_centre = dst_bbox_centre;
+  graph.get_node_props(target_node).centroid = old_centroid;
+  
+  return true;  
 }
 
 
@@ -421,23 +433,30 @@ main (int argc, char** argv)
   std::string adjliststr = graph.adjlist_str();
   
   {
-    ofstream out("adjlist.txt");
+    ofstream out("graphinfo.txt");
     if(!out)
       std::cout << "Could not open adjlist.txt\n";
-    else
-      out << adjliststr;
+    else {
+      out << adjliststr << "\n\n";
+      
+      for(auto it=graph.nodes().begin(); it!=graph.nodes().end(); ++it) {
+        pcl::PointXYZ bbox_centre = graph.get_node_props(*it).bbox_centre;
+        pcl::PointXYZ centroid = graph.get_node_props(*it).centroid;
+        
+        out << *it << ": " << bbox_centre << "  " << centroid << "\n";
+      }
+    }
   }
+  
+  while(do_bad_node_replacement(graph, 0.7, 2, 0.7, 0)) {}
 
-
-  //FaceGraph repairedGraph = do_bad_node_replacement(graph, 0.8, 0.7, 0.8);
-  do_bad_node_replacement(graph, 0.8, 0.7, 0.8);
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr repairedcloud(new pcl::PointCloud<pcl::PointXYZ>);
   std::vector<pcl::PointIndices::Ptr> cluster_indices;
   
   reconstruct_graph(repairedcloud, cluster_indices, graph);
   
-  visualize_clusters<pcl::PointXYZ>(repairedcloud, cluster_indices, g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 1);
+  visualize_clusters<pcl::PointXYZ>(repairedcloud, cluster_indices, g_use_coolwarm_vis ? COLOR_MAP_COOLWARM : COLOR_MAP_RAINBOW, 12345);
 
   //~ pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
   //~ viewer.addPointCloud<pcl::PointXYZ>(repairedcloud);

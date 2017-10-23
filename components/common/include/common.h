@@ -157,6 +157,7 @@ void visualize_clusters(typename pcl::PointCloud<PointT>::Ptr cloud, std::vector
   
   pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
   viewer.addPointCloud<pcl::PointXYZRGB>(cloud_colored);
+  //viewer.addCoordinateSystem();
   
   while (!viewer.wasStopped()) {
     viewer.spinOnce (100);
