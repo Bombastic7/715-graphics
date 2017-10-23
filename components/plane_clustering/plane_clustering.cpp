@@ -10,6 +10,9 @@
 #include <cassert>
 #include <cmath>
 #include <Eigen/Core>
+#include <pcl/point_types.h>
+#include <pcl/common/transforms.h>
+#include <pcl/visualization/cloud_viewer.h>
 #include "common.h"
 #include "parse.h"
 #include "face_graph.hpp"
@@ -299,25 +302,71 @@ main (int argc, char** argv)
 		
 	  } 
   }
-  
-  // Printing the votes per node
- // for (auto i = voteCount.begin(); i != voteCount.end(); ++i){
-	//std::cout << *i << " : " << voteCount.at[*i] << "\n";
- // }
 
-  for (int i = 0; i < voteCount.size(); i++) {
-	  std::cout << i << " : " << voteCount.at(i) << "\n";
-  }
+  //for (int i = 0; i < voteCount.size(); i++) {
+	 // std::cout << i << " : " << voteCount.at(i) << "\n";
+  //}
 
-	  
+  std::vector<std::tuple<int, int>> replacements;
   for (int i = 0; i < voteCount.size(); i++) {
 	  if (voteCount.at(i) >= (voteCount.size() * final_vote_thresh)) {
 		  std::cout << "Replace: " << i << " with " << std::get<0>(neighbour_sim_vote[i]) << " N'hood Similarity: " << std::get<1>(neighbour_sim_vote[i]) <<"\n";
+		  // do replacement
+		  replacements.push_back(std::make_tuple(i, std::get<0>(neighbour_sim_vote[i])));
 	  }
 	  //std::cout << i << " : " << voteCount.at(i)<< "\n";
   }
 
+  for (int i = 0; i<replacements.size(); i++) {
+	  std::cout << "Replaced cluster " << std::get<0>(replacements[i]) << " with " << std::get<1>(replacements[i]) << "\n";
 
+	  pcl::PointCloud<pcl::PointXYZ>::Ptr pc = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+
+	  int srcNodeIndex = std::get<0>(replacements[i]);
+	  int destNodeIndex = std::get<1>(replacements[i]);
+	  pcl::PointXYZ src = faces[srcNodeIndex].compute_bbox_centre();
+	  pcl::PointXYZ dst = faces[destNodeIndex].compute_bbox_centre();
+
+	  Eigen::Affine3f t = Eigen::Affine3f::Identity();
+	  t.translation() << dst.x - src.x, dst.y - src.y, dst.z - src.z;
+
+	  std::cout << t.translation() << "\n";
+
+	  pcl::transformPointCloud<pcl::PointXYZ>(*faces[destNodeIndex].cloud, *pc, t);
+	  faces[destNodeIndex].cloud = pc;
+  }
+
+  // bad node replacement
+  std::vector<pcl::PointIndices::Ptr> cluster_indices;
+  cloud->clear();
+  cluster_indices.clear();
+  for (int i = 0; i < faces.size(); i++) {
+	  pcl::PointIndices::Ptr indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+	  pcl::PointCloud<pcl::PointXYZ>::Ptr face = faces[i].cloud;
+	  *cloud += *face;
+  }
+
+
+  //for (auto it = graph.nodes().begin(); it != graph.nodes().end(); ++it) {
+	 // 
+
+	 // for (int j = cloud->size(); j < cloud->size() + graph.get_node_props(*it).cloud->size(); j++) {
+		//  indices->indices.push_back(j);
+	 // }
+
+	 // cluster_indices.push_back(indices);
+	 // *cloud += *(graph.get_node_props(*it).cloud);
+
+  //}
+  cloud->width = cloud->points.size();
+  cloud->height = 1;
+  cloud->is_dense = true;
+
+  pcl::visualization::CloudViewer viewer("Simple Cloud Viewer");
+  viewer.showCloud(cloud);
+  while (!viewer.wasStopped())
+  {
+  }
 
 	//delete [] votes;
 	//votes = nullptr;

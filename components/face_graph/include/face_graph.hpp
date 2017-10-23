@@ -38,6 +38,32 @@ struct FaceCluster {
   typename pcl::PointCloud<PointT>::Ptr cloud;
   GeomDescriptors geomdesc;
   PointT centroid;
+  pcl::PointXYZ bbox_centre;
+  
+  pcl::PointXYZ compute_bbox_centre() {
+	  if (bbox_centre.x == 0 && bbox_centre.y == 0 && bbox_centre.z == 0) {
+		  float bb_x_min, bb_y_min, bb_z_min;
+		  bb_x_min = bb_y_min = bb_z_min = std::numeric_limits<float>::max();
+		  for (int p = 0; p < cloud->points.size(); p++) {
+			  bb_x_min = std::min(bb_x_min, cloud->points[p].x);
+			  bb_y_min = std::min(bb_y_min, cloud->points[p].y);
+			  bb_z_min = std::min(bb_z_min, cloud->points[p].z);
+		  }
+		  bbox_centre.x = bb_x_min + geomdesc.bb_x / 2;
+		  bbox_centre.y = bb_y_min + geomdesc.bb_y / 2;
+		  bbox_centre.z = bb_z_min + geomdesc.bb_z / 2;
+		  return bbox_centre;
+	  }
+	  else {
+		  return bbox_centre;
+	  }
+	  
+  }
+
+  //pcl::PointCloud<PointT>::Ptr getCloud() {
+	 // return cloud;
+  //}
+
 
 	float compute_similarity(FaceCluster const& n) {
   float bbox_diff = abs(geomdesc.bb_x - n.geomdesc.bb_x) +
@@ -195,6 +221,7 @@ class FaceGraphSegmentor {
     normal_est.setKSearch(p_norm_est_k_);
     normal_est.compute (*cloud_normals_);
   }
+
   
   void segment_planes() {
     
