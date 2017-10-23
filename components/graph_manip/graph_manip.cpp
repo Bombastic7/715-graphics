@@ -241,15 +241,18 @@ float compute_neighbourhood_similarity(int ai, int bi, FaceGraph& graph) {
 
 /*
 TRY_REPLACE_NODE(t)
-  Ns = set of other nodes with similar neighbourhoods (similar mean face similarity >= p_gr_sim_th_nghbr)
+  Ns = set of other nodes with similar neighbourhoods (similar means neighbourhood similarity >= p_gr_sim_th_nghbr)
   
   if Ns.size() < p_gr_min_num_sim_nghbrs:
     return
   
-  BN = subset of Ns, where each node is dissimilar to some other node in Ns. (disimilar means face similarity < p_gr_inter_nghbr_sim_th
+  BN = subset of Ns, where each node is dissimilar to some other node in Ns. (disimilar means face similarity < p_gr_inter_nghbr_sim_th)
+          Or, is too face-similar to t (face-similarity >= _p_gr_inter_nghbr_tgt_sim_th)
   
   if BN.size() / Ns.size() > p_gr_inter_nghbr_bad_tol:
     return
+  
+  //We have confirmed Ns is a reoccurring face+neighbourhood structure. Now insure t is face-dissimilar to all nodes in Ns.
   
   ReplacementNode = the node r in Ns, that's not in BN, that has the best neighbourhood similarity to t.
   
@@ -262,6 +265,7 @@ bool do_bad_node_replacement( FaceGraph& graph,
                               float p_gr_sim_th_nghbr,          //Minimum neighbourhood similarity needed between two nodes to be considered as having similar neighbourhoods. 
                               float p_gr_min_num_sim_nghbrs,    //Minimum number of similar neighbourhoods found needed to proceeded to replacement.
                               float p_gr_inter_nghbr_sim_th,    //Minimum similarity between any two nodes in group of similar neighbourhoods needed to consider those nodes as part of a coherent group.
+                              float p_gr_inter_nghbr_tgt_sim_th,//Minimum face-similarity between tgt node and a neighbour-similar one to be considered similar.
                               float p_gr_inter_nghbr_bad_tol) { //Proportion of noncoherent neighbourhoods allowed.
   
   
@@ -273,6 +277,8 @@ bool do_bad_node_replacement( FaceGraph& graph,
    
    
   for(int i=0; i<nodes.size(); i++) {
+    std::cout << "\nCluster " << nodes[i] << " at " << graph.get_node_props(nodes[i]).bbox_centre << "\n";
+    
     std::vector<std::tuple<float, int>> nodes_with_similar_neighbours;
     
     for(int j=0; j<nodes.size(); j++) {
@@ -284,9 +290,15 @@ bool do_bad_node_replacement( FaceGraph& graph,
       if(s > p_gr_sim_th_nghbr)
         nodes_with_similar_neighbours.push_back(std::make_tuple(s, nodes[j]));
     }
+  
+  std::cout << "Found " << nodes_with_similar_neighbours.size() << " neighbour-similar nodes.\n";
+  
+  
     
-   if(nodes_with_similar_neighbours.size() < p_gr_min_num_sim_nghbrs)
+   if(nodes_with_similar_neighbours.size() < p_gr_min_num_sim_nghbrs) {
+     std::cout << "Not enough neighbour-similar nodes.\n";
     continue;
+  }
     
    std::sort(nodes_with_similar_neighbours.begin(), nodes_with_similar_neighbours.end(), std::greater<std::tuple<float,int>>());
   
@@ -302,11 +314,17 @@ bool do_bad_node_replacement( FaceGraph& graph,
          bad_neighbours.insert(std::get<1>(nodes_with_similar_neighbours[k]));
        }
      }
+     
+     if(compute_face_similarity(nodes[i], std::get<1>(nodes_with_similar_neighbours[j]), graph) >= p_gr_inter_nghbr_tgt_sim_th)
+      bad_neighbours.insert(std::get<1>(nodes_with_similar_neighbours[j]));
    }
    
-   if(((float)bad_neighbours.size()) / nodes_with_similar_neighbours.size() > p_gr_inter_nghbr_bad_tol)
-     continue;
+   std::cout << "Found " << bad_neighbours.size() << " incoherent neighbour-similar nodes.\n";
    
+   if(((float)bad_neighbours.size()) / nodes_with_similar_neighbours.size() > p_gr_inter_nghbr_bad_tol) {
+    std::cout << "Too many incoherent neighbour-similar nodes.\n";
+    continue;
+   }
    
    
    for(int j=0; j<nodes_with_similar_neighbours.size(); j++) {
@@ -390,7 +408,12 @@ int g_adj_k = 50;
 bool g_project_points = false;
 bool g_use_coolwarm_vis = false;
 bool g_proj = false;
-
+float p_gr_sim_th_nghbr = 0.8;
+float p_gr_min_num_sim_nghbrs = 2;
+float p_gr_inter_nghbr_sim_th = 0.7;
+float p_gr_inter_nghbr_tgt_sim_th = 0.7;
+float p_gr_inter_nghbr_bad_tol = 0.2;
+  
 int
 main (int argc, char** argv)
 {
@@ -448,7 +471,7 @@ main (int argc, char** argv)
     }
   }
   
-  while(do_bad_node_replacement(graph, 0.7, 2, 0.7, 0)) {}
+  while(do_bad_node_replacement(graph, p_gr_sim_th_nghbr, p_gr_min_num_sim_nghbrs, p_gr_inter_nghbr_sim_th, p_gr_inter_nghbr_tgt_sim_th, p_gr_inter_nghbr_bad_tol)) {}
 
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr repairedcloud(new pcl::PointCloud<pcl::PointXYZ>);
