@@ -105,6 +105,8 @@ struct FaceSegmentorParameters {
   bool proj;
 };
 
+
+//FaceSegmentor implements face the cluster segmentation algorithm. Give input cloud and parameters as ctor arguments, call run method, then extract clusters with public methods.
 template<typename PointT>
 class FaceSegmentor {
   public:

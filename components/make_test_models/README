@@ -1,0 +1,14 @@
+make_test_models
+
+Creates a ply file containing a test model. The model is 3 cubes of length 2.
+The centre of cube 1 is at the origin, cube 2 is a copy of cube 1 translated 5 units in +X direction, cube 3 is a copy of cube 1 translated 5 units in +Z direction.
+
+Parameters:
+outputfile = string, output ply file
+add_noise = Boolean, add Gaussian noise (stddev = 0.1)
+remove_ball = Boolean, remove points inside sphere of radius 0.75 centred at (0,0,-1)
+
+Parameters are provided in config file, each line is of form key=value
+
+Invoke executable as:
+  ./make_test_models config_file

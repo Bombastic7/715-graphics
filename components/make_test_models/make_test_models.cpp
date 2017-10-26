@@ -2,19 +2,14 @@
 #include <string>
 #include <map>
 #include <cmath>
-
+#include <boost/chrono.hpp>
+#include <boost/thread/thread.hpp>
+#include <Eigen/Core>
 #include <pcl/point_types.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
-#include <Eigen/Core>
-
-#include <boost/chrono.hpp>
-#include <boost/thread/thread.hpp>
-
-
 #include <pcl/visualization/pcl_visualizer.h>
-
 #include "parse.h"
 
 
@@ -90,14 +85,17 @@ int main(int argc, char* argv[]) {
   std::map<std::string, std::string> param_map;
 	if (parse_config_file(argv[1], param_map) == -1) {
     std::cout << "Could not open config file\n";
+    return 1;
   }
   
   try_parse_param(param_map, "add_noise", add_noise);
   try_parse_param(param_map, "remove_ball", remove_ball);
   try_parse_param(param_map, "outputfile", outputfile);
-    
 
-    
+  std::cout << "add_noise = " << add_noise << "\n";
+  std::cout << "remove_ball = " << remove_ball << "\n";
+  std::cout << "outputfile = " << outputfile << "\n";
+  
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = pcl::PointCloud<pcl::PointXYZ>::Ptr (new pcl::PointCloud<pcl::PointXYZ>);
   
@@ -126,13 +124,12 @@ int main(int argc, char* argv[]) {
     cloud2 = cloud;
 
 
-std::cout << "add_noise: " << add_noise << "\n";
 
-  if(add_noise && false)
+  if(add_noise)
     add_gaussian_noise(cloud2, 0.1);
   
   
-  pcl::io::savePLYFile("ab.ply", *cloud2);
+  pcl::io::savePLYFile("outputfile.ply", *cloud2);
 
   pcl::visualization::PCLVisualizer viewer(std::string("PCLVisualizer"));
   viewer.addPointCloud<pcl::PointXYZ>(cloud2);

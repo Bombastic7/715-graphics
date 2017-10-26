@@ -1,0 +1,30 @@
+
+
+Code repository for COMPSCI715 Group 3. University of Auckland, 2017.
+
+
+Matthew Jones, mjon661@aucklanduni.ac.nz
+
+
+
+This code is built using cmake. For a outputting build targets in source tree, invoke ' cmake . ' from top level directory.
+On Linux, invoke ' make ' at top level or a project directory.
+
+
+Individual projects live in a folder under components/
+
+
+components/common
+Miscellaneous facilities used by all projects.
+
+
+components/face_segmentation
+Houses all code related to face cluster segmentation of point clouds.
+
+
+components/graph_manip
+Builds executable graph_manip, which implements graph manipulation and reconstruction algorithms. See README in project folder.
+
+
+components/make_test_models
+Creates a test model. See README In project folder.

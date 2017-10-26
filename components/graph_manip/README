@@ -1,0 +1,49 @@
+graph_manip
+
+Implementation of the graph manipulation operation. Input is ply or pcd file and config file, output is delivered in stdout and visualisation window.
+
+The input point cloud is clustered into faces and a graph is produced.
+The FIX-BAD-NODE operation is applied to the graph, with node replacement information output to stdout.
+The final point cloud is produced from the modified graph, and shown in a visualisation window. Visualisation has each cluster a different colour.
+
+Cluster information, adjacency, and similarity values are output in file clusters.txt.
+
+See comments in graph_manip.cpp for more information.
+
+
+Parameters:
+inputfile             string, input ply or pcd file
+pc_dist_th            float, RANSAC model distance threshold
+pc_sample_max_dist    float, RANSAC max distance between samples each iteration
+pc_eps_angle          float, radians, RANSAC, maximum angular deviation between each point's estimated normal and its fitted plane
+pc_min_points         int, minimum points per plane-cluster
+norm_est_k            int, normal estimation, size of neighbourhood
+fc_maxrad             float, Euclidean clustering search radius
+adj_sz                float, region size for adjacency detection
+adj_k                 int, minimum nearby points needed in adjacent clusters
+project_points        Boolean, project points onto their fitted planes prior to graph manipulation
+use_coolwarm_vis      Boolean, use cool-warm colour scale in visualisation. Otherwise use rainbow scale
+
+gr_fs_sim             See comments in graph_manip.cpp
+gr_ns_sim
+gr_fs_max_sz
+gr_ns_min_sz
+gr_ns_inter_face_sim
+gr_ns_max_avg_tgt_sim
+
+
+Parameters in config file, each line of form key=value
+
+Invoke as
+  ./graph_manip config_file
+
+
+
+A brief overview of face clustering algorithm:
+  Cluster cloud into planes using RANSAC.
+  Cluster planes into faces using Euclidean clustering.
+  Detect adjacency by counting how many points in each cluster are within range to a point in each other cluster.
+  Possibly project points onto their fitted planes.
+
+
+Graph operation is described in graph_manip.cpp.

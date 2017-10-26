@@ -23,14 +23,16 @@
 
 
 
-
+//Geometric descriptors for each face cluster.
 struct FaceGeomDescriptors {
   float bb_x, bb_y, bb_z;
   float o_x, o_y, o_z;
   int num_points;
-  float bb_edge_sum;  
+  float bb_edge_sum;
 };
 
+
+//All properties for each node/cluster.
 struct FaceClusterProps {
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
   FaceGeomDescriptors gd;
@@ -62,7 +64,7 @@ typedef UndirectedMapGraph<FaceClusterProps, int> FaceGraph;
 
 
 
-
+//Take a point cloud and face segmentation parameters as input. Cluster it into faces, return the initialised graph. 
 FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegmentorParameters const& params) {
   
   FaceGraph graph;
@@ -71,14 +73,16 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
   seg.run();
   
   
-  std::map<int,int> cluster_graph_ids;
+  std::map<int,int> cluster_graph_ids; //Map FaceSegmentor cluster indices to node IDs, just for completeness.
   
+  //For each cluster, initialise a FaceClusterProps struct for it and add it to the graph.
   for(int i=0; i<seg.get_clusters_indices().size(); i++) {
     FaceClusterProps fc;
     
     fc.cloud = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-    seg.extract_cluster(i, fc.cloud);
+    seg.extract_cluster(i, fc.cloud); //Extract points from input point cloud into new cloud.
     
+    //Compute min/max coordinates for points in cluster.
     float bb_x_min, bb_x_max, bb_y_min, bb_y_max, bb_z_min, bb_z_max;
     bb_x_min = bb_y_min = bb_z_min = std::numeric_limits<float>::max();
     bb_x_max = bb_y_max = bb_z_max = std::numeric_limits<float>::lowest();
@@ -104,7 +108,7 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
     fc.bbox_centre.z = (bb_z_max + bb_z_min) / 2;
     
 
-    
+    //Normal of fitted plane for cluster.
     fc.gd.o_x = seg.get_cluster_coeffs()[i]->values[0];
     fc.gd.o_y = seg.get_cluster_coeffs()[i]->values[1];
     fc.gd.o_z = seg.get_cluster_coeffs()[i]->values[2];
@@ -136,6 +140,7 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
     }
   }
   
+  //Add edge information to graph.
   for(int i=0; i<adjlist.size(); i++) {
     for(int j=0; j<adjlist[i].size(); j++) {
       graph.add_edge(cluster_graph_ids.at(i), cluster_graph_ids.at(adjlist[i][j]), true);
@@ -151,7 +156,8 @@ FaceGraph create_face_graph(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, FaceSegme
 
 
 
-
+//Returns value in [0,1] describing similarity of two nodes/clusters. 1 means they are identical.
+//ai and bi are IDs of nodes in graph.
 float compute_face_similarity(int ai, int bi, FaceGraph& graph) {
     FaceClusterProps a = graph.get_node_props(ai);
     FaceClusterProps b = graph.get_node_props(bi);
@@ -374,7 +380,9 @@ bool do_bad_node_replacement( FaceGraph& graph,
 
 
 
-//Reconstruct model from graph
+//Reconstruct model from graph.
+//cloud is an empty PointCloud, graph cluster are copied into it.
+//cluster_indices is set to indices of each cluster in cloud.
 void reconstruct_graph( pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, 
                         std::vector<pcl::PointIndices::Ptr>& cluster_indices,
                         FaceGraph& graph) {
@@ -433,8 +441,6 @@ main (int argc, char** argv)
 	std::map<std::string, std::string> param_map;
 
 	if (parse_config_file(argv[1], param_map) == -1) {
-
-		getchar();
 		return 1;
 	}
 
@@ -493,6 +499,7 @@ main (int argc, char** argv)
     }
   }
   
+  //Repeatly apply graph operation while some node is applicable.
   while(do_bad_node_replacement(graph, p_gr_fs_sim, p_gr_ns_sim, p_gr_fs_max_sz, p_gr_ns_min_sz, p_gr_ns_inter_face_sim, p_gr_ns_max_avg_tgt_sim)) {}
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr repairedcloud(new pcl::PointCloud<pcl::PointXYZ>);
