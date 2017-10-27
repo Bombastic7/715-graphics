@@ -218,11 +218,11 @@ int main(int argc, char** argv)
 					// (i minus offset from edge of the hole) > (positive StdUniformDist between 0 and 1)/2.0 * halfway to middle of hole
 					// 
 					// this is a f***ing formula! 
-					if( ( (i - 1.0/3.0*step_count1 > abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count1) && (i < 3.0/6.0*step_count1) )
-						|| ( (2.0/3.0*step_count1 - i > abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count1) ) && (i > 3.0/6.0*step_count1))
+					if( ( (i - 1.0/3.0*step_count1 >= abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count1) && (i <= 3.0/6.0*step_count1) )
+						|| ( (2.0/3.0*step_count1 - i >= abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count1) ) && (i >= 3.0/6.0*step_count1))
 						
-						if (((j - 1.0/3.0*step_count2 > abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count2) && (j < 3.0/6.0*step_count2))
-							|| ((2.0/3.0*step_count2 - j > abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count2)) && (j > 3.0/6.0*step_count2))
+						if (((j - 1.0/3.0*step_count2 >= abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count2) && (j <= 3.0/6.0*step_count2))
+							|| ((2.0/3.0*step_count2 - j >= abs(StdUniformDist.run())/2.0 * 1.0/6.0*step_count2)) && (j >= 3.0/6.0*step_count2))
 							
 								continue;
 				 }
