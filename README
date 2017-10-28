@@ -10,6 +10,8 @@ Matthew Jones, mjon661@aucklanduni.ac.nz
 This code is built using cmake. For a outputting build targets in source tree, invoke ' cmake . ' from top level directory.
 On Linux, invoke ' make ' at top level or a project directory.
 
+Depends on Point Cloud Library (used 1.8.0) and Boost (used 1.62).
+
 
 Individual projects live in a folder under components/
 
