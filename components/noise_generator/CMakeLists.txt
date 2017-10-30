@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.6 FATAL_ERROR)
 
-project(sebastian_making_noise)
+project(noise_generator)
 
 find_package(PCL 1.8 REQUIRED)
 find_package(Qt5Widgets)

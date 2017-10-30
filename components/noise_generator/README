@@ -1,0 +1,26 @@
+noise_generator
+
+USAGE: 
+noise.exe input_file output_file req_point_distance gauss_sigma gauss_noise_in_normal_direction_only window_creation window_fading
+
+Sample usage: 
+noise.exe input.ply output.ply 0.01 0.01 yes yes no
+
+Parameters:
+input_file								Input PLY file must exist
+output_file								Output PLY file to be generated
+req_point_distance						distance between the points, i.e. desity, e.g. 0.01
+gauss_sigma								standard deviation of the gaussian distribution, e.g. 0.01
+gauss_noise_in_normal_direction_only	yes/no whether the noise is added to the points in all directions or only in direction of the normal
+window_creation							yes/no whether windows/holes will be created
+window_fading							yes/no whether the windows/holes contain points in linear fading from the edges
+
+
+Description:
+
+The generator takes a PLY file with a shape and replaces all flats by points.
+Only rectangular flats can be processed so far.
+The points can either be perfect in equal distance or in gaussian distribution with variable sigma.
+Windows/holes can be left without points to simulate holes in point clouds scanned from the real world.
+
+See comments in noise.cpp for more information.

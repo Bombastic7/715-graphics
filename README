@@ -34,3 +34,8 @@ Builds executable graph_manip, which implements graph manipulation and reconstru
 
 components/make_test_models
 Creates a test model. See README In project folder.
+
+
+components/noise_generator
+Creates a noisy cloud from a perfect model. Gaussian noise, windows/holes possible
+See README In project folder.
